@@ -1,0 +1,1448 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ハノン">
+<meta name="theme-color" content="#12141a">
+<title>ハノン練習トレーナ（MIDI）</title>
+<style>
+  :root{
+    --bg:#12141a; --panel:#1a1d26; --panel2:#232733; --line:#2f3444; --grid:#272b38;
+    --fg:#e6e9f0; --dim:#8b93a7; --dim2:#5f677a;
+    --accent:#5cc8ff; --ok:#5ddba0; --warn:#ffcc66; --ng:#ff7b7b;
+    --kw:#eceef4; --kb:#20242e; --kedge:#0d0f14;
+    /* グラフの2系列。姉妹アプリ（ピアノ演奏モニタ）と同じ、ダーク面 #1a1d26 で検証済みの色 */
+    --s1:#3987e5;   /* 右手 */
+    --s2:#d95926;   /* 左手 */
+    --s3:#199e70;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+    font-size:15px; line-height:1.5;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    -webkit-text-size-adjust:100%;
+  }
+  .wrap{max-width:1280px;margin:0 auto;padding:12px 12px 48px}
+  .topbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:2px 0 8px}
+  h1{font-size:17px;margin:0;font-weight:600;flex:0 0 auto}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 10px 8px;margin-bottom:10px}
+  .panel h2{font-size:12px;margin:0 0 8px;color:var(--dim);font-weight:600;letter-spacing:.06em}
+  .panel h3{font-size:12.5px;margin:0 0 6px;color:var(--dim);font-weight:600}
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .row+.row{margin-top:8px}
+  button{
+    background:var(--panel2);color:var(--fg);border:1px solid var(--line);
+    border-radius:8px;padding:8px 13px;font-size:14px;font-family:inherit;cursor:pointer;min-height:38px;
+  }
+  button:active{background:#2c3140}
+  button.primary{background:var(--accent);color:#06202c;border-color:var(--accent);font-weight:600}
+  button.on{background:var(--accent);color:#06202c;border-color:var(--accent);font-weight:600}
+  button:disabled{opacity:.4;cursor:default}
+  select,input[type=number]{
+    background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:8px;
+    padding:8px 10px;font-size:14px;font-family:inherit;min-height:38px;
+  }
+  input[type=number]{width:5.4em;font-variant-numeric:tabular-nums}
+  label.fld{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--dim)}
+  label.chk{display:inline-flex;align-items:center;gap:6px;color:var(--dim);font-size:13px;cursor:pointer;min-height:38px}
+  input[type=checkbox]{width:17px;height:17px;accent-color:var(--accent)}
+  input[type=range]{accent-color:var(--accent)}
+  .stat{font-size:13px;color:var(--dim)}
+  .stat.ok{color:var(--ok)} .stat.ng{color:var(--ng)} .stat.warn{color:var(--warn)}
+  .hint{font-size:12px;color:var(--dim2);margin:8px 0 0;line-height:1.6}
+  .hint b{color:var(--dim);font-weight:600}
+  .sep{width:1px;align-self:stretch;background:var(--line);margin:0 2px}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{border:0;border-radius:0;border-right:1px solid var(--line);padding:8px 11px;font-size:13px}
+  .seg button:last-child{border-right:0}
+
+  /* ---- 鍵盤とリアルタイム帯 ---- */
+  .kbBox{overflow-x:auto}
+  .kbInner{min-width:760px}
+  #strip{display:block;width:100%;height:56px}
+  #kb{display:block;width:100%;height:auto}
+
+  /* ---- 成績のタイル ---- */
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:8px;margin-bottom:12px}
+  .tile{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+  .tile .t{font-size:11px;color:var(--dim);letter-spacing:.04em}
+  .tile .v{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.25}
+  .tile .v .u{font-size:12px;color:var(--dim);font-weight:400;margin-left:2px}
+  .tile .s{font-size:11.5px;color:var(--dim2);font-variant-numeric:tabular-nums}
+  .tile .s .r{color:var(--s1)} .tile .s .l{color:var(--s2)}
+
+  /* ---- グラフ ---- */
+  .chartBox{position:relative}
+  canvas.chart{display:block;width:100%}
+  #chMain{height:330px}
+  #chPos{height:210px}
+  #chHist{height:210px}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+  @media (max-width:820px){ .two{grid-template-columns:1fr} }
+  .legend{display:flex;gap:12px;align-items:center;font-size:12px;color:var(--dim);margin:0 0 4px}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+  .tip{
+    position:absolute;pointer-events:none;opacity:0;transition:opacity .08s;
+    background:#0d0f14;border:1px solid var(--line);border-radius:8px;padding:6px 9px;
+    font-size:12px;line-height:1.5;color:var(--fg);white-space:nowrap;z-index:5;
+    font-variant-numeric:tabular-nums;
+  }
+  .tip b{color:var(--fg);font-weight:600} .tip .k{color:var(--dim)}
+  table.tbl{border-collapse:collapse;font-size:12.5px;width:100%;font-variant-numeric:tabular-nums}
+  table.tbl th,table.tbl td{border-bottom:1px solid var(--line);padding:5px 8px;text-align:right}
+  table.tbl th:first-child,table.tbl td:first-child{text-align:left}
+  table.tbl th{color:var(--dim);font-weight:600}
+  details{margin-top:10px}
+  summary{font-size:12.5px;color:var(--dim);cursor:pointer;min-height:32px;display:flex;align-items:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <h1>ハノン練習トレーナ（MIDI）</h1>
+    <span class="stat" id="midiState" style="flex:1 1 auto;min-width:0">まだつないでいません</span>
+    <button id="midiBtn">MIDIにつなぐ</button>
+  </div>
+
+  <!-- ============ 演奏 ============ -->
+  <div class="panel">
+    <div class="row">
+      <button id="playBtn" class="primary">開始</button>
+      <button id="clearBtn">記録を消す</button>
+      <div class="sep"></div>
+      <label class="fld">テンポ <input type="number" id="bpm" min="20" max="240" step="1"> <span style="color:var(--dim2)">BPM</span></label>
+      <label class="fld">分割 <select id="subdiv">
+        <option value="4">16分（1拍4つ）</option>
+        <option value="3">3連8分（1拍3つ）</option>
+        <option value="2">8分（1拍2つ）</option>
+      </select></label>
+      <label class="fld">カウントイン <select id="countIn">
+        <option value="0">なし</option><option value="4">4拍</option><option value="8">8拍</option>
+      </select></label>
+      <label class="chk"><input type="checkbox" id="loopChk">くり返す</label>
+      <div class="sep"></div>
+      <button id="simBtn">ためし演奏</button>
+      <span class="stat" id="runState"></span>
+    </div>
+    <p class="hint"><b>ためし演奏</b>は、電子ピアノが手元になくても動きを見るためのものです。わざと少しよれた演奏を作って、実機と同じ判定経路に流します。</p>
+  </div>
+
+  <!-- ============ 課題 ============ -->
+  <div class="panel">
+    <h2>課題</h2>
+    <div class="row">
+      <label class="fld">曲 <select id="pattern"></select></label>
+      <label class="fld">調 <select id="key"></select></label>
+      <label class="fld">旋法 <select id="mode"></select></label>
+      <label class="fld"><span id="lenLabel">長さ</span> <input type="number" id="len" min="1" max="20" step="1"></label>
+      <label class="fld">右手の開始 <select id="startOct"></select></label>
+      <label class="fld">手 <select id="hands">
+        <option value="both">両手</option><option value="R">右手だけ</option><option value="L">左手だけ</option>
+      </select></label>
+      <label class="fld">手の間隔 <select id="gap">
+        <option value="12">1オクターブ</option><option value="24">2オクターブ</option><option value="0">同じ高さ（ユニゾン）</option>
+      </select></label>
+    </div>
+    <p class="hint" id="patHint"></p>
+  </div>
+
+  <!-- ============ メトロノーム ============ -->
+  <div class="panel">
+    <h2>メトロノーム</h2>
+    <div class="row">
+      <span class="seg" id="clickOutSeg">
+        <button data-v="midi">MIDIで鳴らす</button><button data-v="audio">内蔵スピーカー</button><button data-v="off">鳴らさない</button>
+      </span>
+      <label class="fld">送り先 <select id="clickPort"><option value="">（MIDIにつなぐと出ます）</option></select></label>
+      <span class="seg" id="clickVoiceSeg"></span>
+      <label class="fld">音量 <input type="range" id="clickVol" min="10" max="127" step="1" style="width:120px"><span class="stat" id="clickVolVal" style="width:2.4em;text-align:right"></span></label>
+      <button id="clickDryBtn">残響を抑える</button>
+      <button id="clickTestBtn">テスト</button>
+    </div>
+    <p class="hint">クリックは<b>電子ピアノ自身に鳴らしてもらう</b>のが基本です。内蔵スピーカーだと出力までの遅れ（Bluetoothオーディオなら数百ms）がそのまま「ずれ」に化けます。MIDIで鳴らせば数msで済みます。</p>
+  </div>
+
+  <!-- ============ 判定の条件 ============ -->
+  <div class="panel">
+    <h2>判定の条件</h2>
+    <div class="row">
+      <label class="fld">許容窓 <input type="number" id="win" min="20" max="400" step="5"> <span style="color:var(--dim2)">ms</span></label>
+      <span class="stat" id="winHint"></span>
+      <div class="sep"></div>
+      <label class="fld">アクセント <select id="accPat">
+        <option value="off">判定しない</option>
+        <option value="all">全部を強く</option>
+        <option value="beat">拍の頭だけ強く</option>
+        <option value="cell">細胞の頭だけ強く</option>
+        <option value="alt">ひとつおきに強く</option>
+      </select></label>
+      <label class="fld">強い音は <input type="number" id="t1" min="1" max="127" step="1"> 以上</label>
+      <label class="fld">弱い音は <input type="number" id="t2" min="1" max="127" step="1"> 以下</label>
+    </div>
+    <div class="row">
+      <label class="fld">ずれのゼロ点 <input type="number" id="cal" min="-300" max="300" step="1"> <span style="color:var(--dim2)">ms</span></label>
+      <button id="calBtn">いまのずれを0にする</button>
+      <button id="calResetBtn">0に戻す</button>
+      <span class="stat" id="calHint"></span>
+    </div>
+    <p class="hint">MIDIの入力にも数ms〜十数msの遅れがあり、機種を変えると値も変わります。そのため<b>生のタイムスタンプは絶対的な正解ではありません</b>。ふつうに1〜2回弾いてから「いまのずれを0にする」を押すと、そのときの中央値を基準にします。以後は<b>その基準からのばらつき</b>を見ることになります。許容窓は散布図の縦軸の範囲でもあるので、<b>図のいちばん端の点＝かろうじて正解と認めた打鍵</b>になります。</p>
+  </div>
+
+  <!-- ============ 鍵盤 ============ -->
+  <div class="panel">
+    <div class="row" style="margin-bottom:8px">
+      <label class="chk"><input type="checkbox" id="stripChk">弾いている最中のずれを出す</label>
+      <label class="chk"><input type="checkbox" id="markChk">調の音に印</label>
+      <span class="stat" id="nextHint"></span>
+    </div>
+    <div class="kbBox"><div class="kbInner">
+      <canvas id="strip"></canvas>
+      <svg id="kb" viewBox="0 0 1196 152" preserveAspectRatio="xMidYMid meet"></svg>
+    </div></div>
+  </div>
+
+  <!-- ============ 結果 ============ -->
+  <div class="panel">
+    <h2>結果</h2>
+    <div class="tiles" id="tiles"></div>
+
+    <div class="legend">
+      <span><i style="background:var(--s1)"></i>右手</span>
+      <span><i style="background:var(--s2)"></i>左手</span>
+      <span style="color:var(--dim2)">縦線の長さ＝左右のズレ　／　0の線に近いほど正確</span>
+    </div>
+    <div class="chartBox">
+      <canvas id="chMain" class="chart"></canvas>
+      <div class="tip" id="tipMain"></div>
+    </div>
+
+    <div class="two">
+      <div>
+        <h3>細胞の中の位置ごと（指の癖）</h3>
+        <div class="chartBox">
+          <canvas id="chPos" class="chart"></canvas>
+          <div class="tip" id="tipPos"></div>
+        </div>
+      </div>
+      <div>
+        <h3 style="display:flex;gap:10px;align-items:center">分布
+          <span class="seg" id="histSeg" style="font-weight:400">
+            <button data-v="dev">クリックとのずれ</button><button data-v="ioi">粒のそろい</button>
+          </span>
+        </h3>
+        <div class="chartBox">
+          <canvas id="chHist" class="chart"></canvas>
+          <div class="tip" id="tipHist"></div>
+        </div>
+      </div>
+    </div>
+
+    <details>
+      <summary>数字で見る（表）</summary>
+      <div id="tableBox" style="margin-top:8px"></div>
+    </details>
+  </div>
+
+  <p class="hint" style="text-align:center">
+    姉妹プロジェクト：<b>ピアノ演奏モニタ</b>（弾いたものを映す）／<b>コード弾き練習 MIDI Ver.</b>（コードを弾く）。MIDIのつなぎ方はどれも同じです。
+  </p>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const mod = (a,b) => ((a%b)+b)%b;
+const clamp = (v,a,b) => v<a?a:(v>b?b:v);
+
+/* =======================================================================
+   1. 音楽の層
+   譜面は「音の並び」ではなく「音度の並び」で持つ。こうすると、調を変えるのも
+   旋法を変えるのも同じ1つの写像で済み、ハノンの移調が（半音ではなく）音階の中の
+   移調になる。教会旋法は音階の半音の並びを差し替えるだけで足りる。
+   ======================================================================= */
+const MODES = {
+  ionian     :{n:'イオニア（長調）',      s:[0,2,4,5,7,9,11]},
+  dorian     :{n:'ドリア',                s:[0,2,3,5,7,9,10]},
+  phrygian   :{n:'フリギア',              s:[0,1,3,5,7,8,10]},
+  lydian     :{n:'リディア',              s:[0,2,4,6,7,9,11]},
+  mixolydian :{n:'ミクソリディア',        s:[0,2,4,5,7,9,10]},
+  aeolian    :{n:'エオリア（自然的短調）',s:[0,2,3,5,7,8,10]},
+  locrian    :{n:'ロクリア',              s:[0,1,3,5,6,8,10]},
+  harmMinor  :{n:'和声的短音階',          s:[0,2,3,5,7,8,11]},
+  melMinor   :{n:'旋律的短音階（上行形）',s:[0,2,3,5,7,9,11]},
+};
+const KEYS = ['C','D♭ / C♯','D','E♭','E','F','F♯ / G♭','G','A♭','A','B♭','B'];
+
+/* 音度→音高。音度は7で1オクターブ（黒鍵を数えない）。旋法の半音の並びを通して実音にする */
+function degToMidi(tonic, semis, deg){
+  const o = Math.floor(deg/7), i = mod(deg,7);
+  return tonic + 12*o + semis[i];
+}
+
+/* ---- ハノン 第1部（1〜20番）----------------------------------------------
+   Mutopia Project の LilyPond 原典（パブリックドメイン、Hanon 1873）から
+   1音ずつ読み出して音度に直し、下の数値から楽譜を組み直して原典と一致することを
+   確かめてある（20曲中15曲は全音一致。残りは上行から下行へ折り返す1〜4音だけ、
+   原典が形を崩している箇所で、こちらは規則どおりに続ける）。
+     up   … 上行の細胞（8音）。1細胞ごとに音度を1つ上げる
+     down … 下行の細胞。1細胞ごとに音度を1つ下げる
+     base … 1つめの細胞の開始音度（主音からいくつ上か）
+     d    … 下行の開始位置（上行最後の細胞の開始音度からのずれ）
+     dc   … 下行の細胞数（上行に対する増減）
+   ------------------------------------------------------------------------ */
+const HANON = [
+ {n:1, base:0,cells:14,d:5, dc:1, up:[0,2,3,4,5,4,3,2],     down:[0,-2,-3,-4,-5,-4,-3,-2]},
+ {n:2, base:0,cells:14,d:5, dc:0, up:[0,2,5,4,3,4,3,2],     down:[0,-3,-5,-4,-3,-4,-3,-2]},
+ {n:3, base:0,cells:14,d:5, dc:0, up:[0,2,5,4,3,2,3,4],     down:[0,-3,-5,-4,-3,-2,-3,-4]},
+ {n:4, base:0,cells:14,d:5, dc:0, up:[0,1,0,2,5,4,3,2],     down:[0,-1,0,-3,-5,-4,-3,-2]},
+ {n:5, base:0,cells:14,d:1, dc:0, up:[0,5,4,5,3,4,2,3],     down:[0,1,0,2,1,3,2,4]},
+ {n:6, base:0,cells:14,d:5, dc:0, up:[0,5,4,5,3,5,2,5],     down:[0,-5,-4,-5,-3,-5,-2,-5]},
+ {n:7, base:0,cells:14,d:5, dc:0, up:[0,2,1,3,2,4,3,2],     down:[0,-2,-1,-3,-2,-4,-3,-2]},
+ {n:8, base:0,cells:14,d:5, dc:0, up:[0,2,4,5,3,4,2,3],     down:[0,-2,-4,-5,-3,-4,-2,-3]},
+ {n:9, base:0,cells:14,d:5, dc:0, up:[0,2,3,2,4,3,5,4],     down:[0,-2,-3,-2,-4,-3,-5,-4]},
+ {n:10,base:0,cells:14,d:5, dc:0, up:[0,5,4,3,2,3,2,3],     down:[0,-5,-4,-3,-2,-3,-2,-3]},
+ {n:11,base:0,cells:14,d:5, dc:0, up:[0,2,5,4,5,4,3,4],     down:[0,-3,-5,-4,-5,-4,-3,-4]},
+ {n:12,base:5,cells:14,d:-5,dc:1, up:[0,-5,-3,-4,-5,-4,-3,-5],down:[0,5,3,4,5,4,3,5]},
+ {n:13,base:2,cells:14,d:1, dc:0, up:[0,-2,1,-1,2,0,1,2],   down:[0,2,-1,1,0,-2,-1,0]},
+ {n:14,base:0,cells:14,d:5, dc:0, up:[0,1,3,2,3,2,4,3],     down:[0,-1,-3,-2,-3,-2,-4,-3]},
+ {n:15,base:0,cells:14,d:5, dc:0, up:[0,2,1,3,2,4,3,5],     down:[0,-2,-1,-3,-2,-4,-3,-5]},
+ {n:16,base:0,cells:14,d:5, dc:0, up:[0,2,1,2,5,4,3,4],     down:[0,-3,-2,-3,-5,-4,-3,-4]},
+ {n:17,base:0,cells:14,d:5, dc:-1,up:[0,2,5,4,6,5,4,5],     down:[0,-3,-5,-4,-6,-5,-4,-6]},
+ {n:18,base:0,cells:14,d:5, dc:0, up:[0,1,3,2,4,3,1,2],     down:[0,-1,-3,-2,-4,-3,-1,-2]},
+ {n:19,base:0,cells:14,d:5, dc:0, up:[0,5,3,4,5,3,2,4],     down:[0,-5,-3,-4,-5,-3,-2,-4]},
+ {n:20,base:0,cells:15,d:7, dc:0, up:[0,2,5,7,5,4,5,3],     down:[0,-2,-5,-7,-5,-6,-5,-7]},
+];
+
+/* ハノンには無いが欲しいもの。1オクターブぶんの音度を並べ、指定した数だけ積む */
+const RUNS = {
+  scale :{n:'スケール（音階）',            steps:[0,1,2,3,4,5,6], oct:2},
+  third :{n:'3度（1音とばし）',            steps:null, kind:'gap', gap:2, oct:2},
+  sixth :{n:'6度',                          steps:null, kind:'gap', gap:5, oct:2},
+  arp3  :{n:'アルペジオ（三和音）',        steps:[0,2,4], oct:2},
+  arp7  :{n:'アルペジオ（七の和音）',      steps:[0,2,4,6], oct:2},
+  brok  :{n:'分散和音（1-3-5-3）',          steps:[0,2,4,2], oct:2},
+};
+
+/* 課題ひとつぶんの音度列を作る。返すのは
+   {degs:[音度], pos:[細胞の中の位置], groupLen, cells} */
+function buildDegrees(){
+  const P = S.pattern;
+  if(P.startsWith('hanon')){
+    const h = HANON[parseInt(P.slice(5),10)-1];
+    const cells = clamp(S.len, 1, 24), p = h.up.length;
+    const degs=[], pos=[];
+    for(let i=0;i<cells;i++) for(let k=0;k<p;k++){ degs.push(h.base+i+h.up[k]); pos.push(k); }
+    const ds = h.base + cells - 1 + h.d;
+    for(let j=0;j<cells+h.dc;j++) for(let k=0;k<p;k++){ degs.push(ds-j+h.down[k]); pos.push(k); }
+    degs.push(0); pos.push(0);                 /* 最後の主音（原典の全音符にあたる） */
+    return {degs, pos, groupLen:p, cells};
+  }
+  const r = RUNS[P], oct = clamp(S.len,1,5);
+  let one;
+  if(r.kind==='gap'){ one=null; }
+  else one = r.steps;
+  const degs=[], pos=[];
+  if(r.kind==='gap'){
+    /* 3度・6度：音度を1つずつ上げながら、その都度 gap ぶん上の音と組にする */
+    const top = 7*oct;
+    for(let i=0;i+r.gap<=top;i++){ degs.push(i); degs.push(i+r.gap); }
+    for(let i=top-r.gap;i>0;i--){ degs.push(i+r.gap); degs.push(i); }
+    degs.push(0);
+    const gl = 2;         /* くり返しの単位は「2音ひと組」 */
+    for(let i=0;i<degs.length;i++) pos.push(i%gl);
+    return {degs,pos,groupLen:gl,cells:oct};
+  }
+  for(let o=0;o<oct;o++) for(const s of one) degs.push(7*o+s);
+  degs.push(7*oct);
+  for(let o=oct-1;o>=0;o--) for(let k=one.length-1;k>=0;k--) degs.push(7*o+one[k]);
+  const gl = one.length;
+  for(let i=0;i<degs.length;i++) pos.push(i%gl);
+  return {degs,pos,groupLen:gl,cells:oct};
+}
+
+/* 音度列を実際の鍵に落とす。両手ぶん作る（照合は手ごとに厳密に行う） */
+let SEQ = null;
+function buildSeq(){
+  const d = buildDegrees();
+  const semis = MODES[S.mode].s;
+  const tonic = S.keyPc + 12*S.startOct;      /* 右手の主音 */
+  const steps = d.degs.map((deg,i)=>({
+    i, deg, pos:d.pos[i],
+    R: degToMidi(tonic, semis, deg),
+    L: degToMidi(tonic - (S.gap||0), semis, deg),
+  }));
+  SEQ = {steps, groupLen:d.groupLen, cells:d.cells, semis, tonic};
+  return SEQ;
+}
+const seqLen = () => SEQ ? SEQ.steps.length : 0;
+
+/* その打点が「強く弾くべき」か。アクセントの型は、あとで
+   スタッカート／レガートを足すときも同じ表に足せるようにしてある */
+function accentOf(i){
+  const p = S.accPat;
+  if(p==='off') return null;
+  if(p==='all') return true;
+  if(p==='beat') return mod(i,S.subdiv)===0;
+  if(p==='cell') return mod(i,SEQ.groupLen)===0;
+  if(p==='alt')  return mod(i,2)===0;
+  return null;
+}
+
+/* =======================================================================
+   2. 設定
+   ======================================================================= */
+const S = {
+  pattern:'hanon1', keyPc:0, mode:'ionian', len:14, startOct:5, hands:'both', gap:12,
+  bpm:72, subdiv:4, countIn:4, loop:false,
+  clickOut:'midi', clickPort:'', clickVoice:'wood', clickVel:52, clickDry:true,
+  winMs:120, accPat:'off', t1:80, t2:60, calMs:0,
+  strip:false, marks:true, hist:'dev',
+};
+const SAVE_KEY='hanon_trainer_v1';
+function save(){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify(S)); }catch(e){} }
+let saveT=null; const saveSoon=()=>{ clearTimeout(saveT); saveT=setTimeout(save,400); };
+function load(){
+  try{ const o=JSON.parse(localStorage.getItem(SAVE_KEY)||'{}');
+    for(const k in S) if(k in o && typeof o[k]===typeof S[k]) S[k]=o[k];
+  }catch(e){}
+}
+
+/* =======================================================================
+   3. MIDI
+   ======================================================================= */
+let midi=null;
+const setMidiState=(t,c)=>{ const e=$('midiState'); e.textContent=t; e.className='stat'+(c?' '+c:''); };
+
+async function connectMidi(){
+  if(!navigator.requestMIDIAccess){
+    setMidiState('このブラウザは Web MIDI API に非対応です（iPadでは MIDIWeb Browser、Macでは Chrome）','ng');
+    return;
+  }
+  setMidiState('接続中…');
+  try{ midi = await navigator.requestMIDIAccess({sysex:false}); }
+  catch(e){ setMidiState('MIDIへのアクセスが拒否されました: '+e.message,'ng'); return; }
+  midi.onstatechange = attachMidi;
+  attachMidi();
+  $('midiBtn').disabled = true;
+}
+function attachMidi(){
+  const names=[];
+  for(const i of midi.inputs.values()){ i.onmidimessage = ev=>handleMessage(ev.data, ev.timeStamp); names.push(i.name); }
+  /* クリックの送り先は、入力と同じ名前の出力を優先する。仮想ポートへ送ると自分の音が
+     入力に返ってきたり、鍵盤に届かなかったりする */
+  const outs=[...midi.outputs.values()];
+  if(!outs.some(o=>o.id===S.clickPort))
+    S.clickPort = (outs.find(o=>names.includes(o.name)) || outs[0] || {}).id || '';
+  if(!names.length) setMidiState('入力デバイスが見つかりません（電源・Bluetooth MIDI のペアリングを確認）','ng');
+  else setMidiState('接続済み：'+names.join(' / '),'ok');
+  renderPorts();
+}
+function handleMessage(data, ts){
+  const st=data[0];
+  if(st>=0xF0) return;
+  const type=st&0xF0, d1=data[1], d2=data[2];
+  /* 自分が鳴らしたクリックが仮想ポート経由で戻ってきても、押した音として扱わない */
+  if(S.clickOut==='midi' && (st&0x0F)===clickVoice().ch) return;
+  const t = (typeof ts==='number' && ts>0) ? ts : performance.now();
+  if(type===0x90 && d2>0) noteOn(d1,d2,t);
+  else if(type===0x80 || (type===0x90 && d2===0)) noteOff(d1, d2||0, t);
+  else if(type===0xB0 && d1===64) pedal = d2>=64;
+}
+let pedal=false;
+
+/* ---- クリックの音色（姉妹アプリと同じ表） ---- */
+const CC_CLEAN=[[1,0],[93,0],[99,1],[98,9],[6,0]];
+const CC_SHORT=[[73,0],[75,0],[72,0]];
+const lead=(name,pc)=>({name, ch:15, pc, notes:[81,87,93], gate:30, cc:[...CC_SHORT,...CC_CLEAN]});
+const perc=(name,pc)=>({name, ch:15, pc, notes:[81,87,93], gate:60, cc:[...CC_CLEAN]});
+const CLICK_VOICE={
+  wood  :{name:'ウッドブロック', ch:9, notes:[77,76,75], gate:60},   /* ch10のパーカッション */
+  xylo  :perc('シロフォン',13),
+  square:lead('矩形波',80),
+};
+const clickVoice = () => CLICK_VOICE[S.clickVoice] || CLICK_VOICE.wood;
+const CLICK_RATIO=[0.55,0.78,1];
+const clickVel = lv => clamp(Math.round(S.clickVel*(CLICK_RATIO[lv]??1)),1,127);
+
+let clickTimers=[];
+const clearClickTimers = () => { clickTimers.forEach(clearTimeout); clickTimers=[]; };
+function clickPort(){
+  if(!midi) return null;
+  const outs=[...midi.outputs.values()];
+  if(!outs.length) return null;
+  return outs.find(o=>o.id===S.clickPort) || outs[0];
+}
+function clickSetup(out){
+  const v=clickVoice();
+  try{
+    if(v.pc!=null) out.send([0xC0|v.ch, v.pc]);
+    (v.cc||[]).forEach(([n,x])=>out.send([0xB0|v.ch, n, x]));
+    if(S.clickDry){ out.send([0xB0|v.ch,91,0]); out.send([0xB0|v.ch,93,0]); }
+  }catch(e){}
+}
+/* t は音の時計。Web MIDI の send(data,時刻) は予約できる決まりだが、環境によっては
+   無視されてすぐ鳴る。先読みの120ms前から投げるとその分まるごと早まるので、35ms前まで
+   待ってから投げる。時刻は待ったあとに引き直す（タイマーのぶれと時計のずれを足さない）。 */
+function midiClick(t, level){
+  const out=clickPort();
+  if(!out) return false;
+  const v=clickVoice(), note=v.notes[level]??v.notes[0], vel=clickVel(level);
+  const fire=()=>{
+    const at=performance.now()+(t-actx.currentTime)*1000;
+    try{ out.send([0x90|v.ch,note,vel],at); out.send([0x80|v.ch,note,0],at+v.gate); }catch(e){}
+  };
+  const lead=(t-actx.currentTime)*1000-35;
+  if(lead>0) clickTimers.push(setTimeout(fire,lead)); else fire();
+  return true;
+}
+function clickTest(){
+  ensureCtx();
+  if(S.clickOut==='midi'){
+    const out=clickPort();
+    if(!out){ setMidiState('出力先が見つかりません（MIDIに接続してから選んでください）','ng'); return; }
+    clickSetup(out);
+    const v=clickVoice();
+    [2,0,0,0].forEach((lv,i)=>clickTimers.push(setTimeout(()=>{
+      try{ out.send([0x90|v.ch,v.notes[lv],clickVel(lv)]);
+           out.send([0x80|v.ch,v.notes[lv],0],performance.now()+v.gate); }catch(e){}
+    }, i*500)));
+  }else{
+    [2,0,0,0].forEach((lv,i)=>audioClick(actx.currentTime+0.05+i*0.5, lv));
+  }
+}
+function audioClick(t, level){
+  const f=[900,1250,1800][level], v=[0.16,0.28,0.40][level]*clamp(S.clickVel/64,0.2,2);
+  const o=actx.createOscillator(), g=actx.createGain();
+  o.type='square'; o.frequency.setValueAtTime(f,t);
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(v,t+0.002);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+(level?0.055:0.035));
+  o.connect(g); g.connect(actx.destination);
+  o.start(t); o.stop(t+0.08);
+}
+function click(t, level){
+  if(S.clickOut==='off') return;
+  if(S.clickOut==='midi' && midiClick(t,level)) return;
+  audioClick(t,level);
+}
+
+/* =======================================================================
+   4. 時計とスケジューラ
+   拍は音の時計（AudioContext）で予約し、打鍵は画面の時計（performance.now）で届く。
+   予約した拍を「鳴る時刻」に直して控えておき、そこからのずれを測る。
+   MIDIで鳴らすなら鍵盤にほぼそのまま届くが、内蔵スピーカーだと outputLatency ぶん
+   遅れて耳に届くので、そのぶんを基準に足す。ここを見ないと画面と音が食い違う。
+   ======================================================================= */
+let actx=null, schedId=null, nextTime=0, gbeat=0, playing=false, playGen=0;
+const LOOKAHEAD=0.12, TICK=25;
+const stepMs   = () => 60000/S.bpm/S.subdiv;
+const beatSec  = () => 60/S.bpm;
+const outLat   = () => { const l=actx&&actx.outputLatency;
+                         return (typeof l==='number'&&isFinite(l)&&l>0&&l<3)?l:0; };
+const clickLatMs = () => S.clickOut==='audio' ? outLat()*1000 : 0;
+
+let beatPerf=[];       /* 拍番号 → その拍が鳴る時刻（performance.now 系, ms） */
+let pending=[];        /* まだ窓が閉じていない期待音 */
+let hits=[];           /* 記録。1打鍵＝1件。抜けも1件として入る */
+let soundingMap=new Map();  /* いま押している音 → その打鍵の記録（離鍵時刻を書き込む） */
+let lastGi=-1;         /* いちばん先まで作った歩 */
+
+const totalSteps = () => S.loop ? Infinity : seqLen();
+const expTime = gi => {
+  const b=Math.floor(gi/S.subdiv);
+  return beatPerf[b]!=null ? beatPerf[b] + mod(gi,S.subdiv)*stepMs() : null;
+};
+
+function ensureCtx(){
+  if(actx) return actx;
+  actx=new (window.AudioContext||window.webkitAudioContext)();
+  /* Safari(WebKit)は 'suspended' のほかに 'interrupted' を取る。片方だけ見ていると
+     他アプリに音声を取られたまま復帰できず、黙ったまま時計だけ進む */
+  actx.addEventListener('statechange',()=>{
+    if(playing && actx.state!=='running') Promise.resolve(actx.resume()).catch(()=>{});
+  });
+  return actx;
+}
+
+/* その拍の期待音を作る。ta は音の時計での拍の時刻。
+   音の時計と画面の時計の読み替えは、いつ行っても同じだけ正しい（同時に両方を読むため）ので、
+   クリックの予約よりずっと先で作っておいても精度は落ちない */
+function registerBeat(b, ta){
+  if(b<0 || beatPerf[b]!=null) return;
+  const gi0=b*S.subdiv;
+  if(gi0>=totalSteps()) return;
+  const tp = performance.now() + (ta-actx.currentTime)*1000 + clickLatMs();
+  beatPerf[b]=tp;
+  for(let j=0;j<S.subdiv;j++){
+    const gi=gi0+j;
+    if(gi>=totalSteps()) break;
+    pushExpected(gi, tp + j*stepMs());
+  }
+}
+function schedule(){
+  /* 予約が現在時刻より後ろに落ちたら現在へ引き直す。タブを離れてタイマーが間引かれたり、
+     中断から復帰して時計が飛んだときに起きる。過去に置いた予約は包絡が済んで無音になる。
+     先に作ってあった期待音は時刻が古くなるので捨てる */
+  if(nextTime < actx.currentTime){
+    nextTime = actx.currentTime+0.06;
+    for(let b=Math.max(gbeat,0);b<beatPerf.length;b++) beatPerf[b]=null;
+    pending = pending.filter(e=>e.gi < gbeat*S.subdiv);
+    lastGi = Math.min(lastGi, gbeat*S.subdiv-1);
+  }
+  while(nextTime < actx.currentTime + LOOKAHEAD){
+    const beat = gbeat;
+    if(beat<0){
+      click(nextTime, beat===-S.countIn?2:0);
+    }else{
+      const gi0 = beat*S.subdiv;
+      if(gi0 >= totalSteps()+S.subdiv) { stopSoon(); return; }
+      click(nextTime, mod(gi0, S.subdiv*4)===0 ? 2 : 0);
+      registerBeat(beat, nextTime);
+    }
+    gbeat++; nextTime += beatSec();
+  }
+  /* 拍より早く弾かれた音も受け取れるように、期待音だけは許容窓のぶん先まで作っておく。
+     クリックの予約まで先読みを広げると、send の時刻指定を無視する環境で早鳴りするので広げない */
+  let b=gbeat, ta=nextTime;
+  const lim = actx.currentTime + LOOKAHEAD + (S.winMs+200)/1000;
+  while(ta < lim){ registerBeat(b, ta); b++; ta += beatSec(); }
+}
+function pushExpected(gi, t){
+  if(gi<=lastGi) return;
+  lastGi=gi;
+  const st=SEQ.steps[mod(gi, seqLen())];
+  const hs = S.hands==='both' ? ['R','L'] : [S.hands];
+  for(const h of hs) pending.push({gi, hand:h, midi:st[h], t, pos:st.pos, done:false});
+  if(simOn) simSchedule(gi, t);
+}
+
+function play(){
+  if(playing) return;
+  ensureCtx();
+  buildSeq();
+  const gen=++playGen;
+  playing=true; gbeat=-S.countIn; beatPerf=[]; pending=[]; lastGi=-1;
+  /* 記録は毎回まっさらにする。歩の番号は0から振り直されるので、前の回を
+     残すと横軸の同じ位置に別の回の点が重なってしまう */
+  hits=[]; held.clear(); soundingMap.clear();
+  if(S.clickOut==='midi'){ const o=clickPort(); if(o) clickSetup(o); }
+  $('playBtn').textContent='止める'; $('playBtn').classList.remove('primary');
+  let started=false;
+  const begin=()=>{
+    if(started || gen!==playGen || !playing) return;
+    started=true;
+    clearInterval(schedId);
+    nextTime=actx.currentTime+0.08;
+    schedId=setInterval(schedule,TICK);
+    schedule(); requestAnimationFrame(uiLoop);
+  };
+  if(actx.state==='running'){ begin(); return; }
+  /* 最初の一度は音を出して解錠する必要がある実装がある。resume() は非同期で、
+     効く前に予約すると時計が動き出した時点で予約が過去になり無音になる */
+  try{
+    const b=actx.createBufferSource();
+    b.buffer=actx.createBuffer(1,1,actx.sampleRate);
+    b.connect(actx.destination); b.start();
+  }catch(e){}
+  try{ Promise.resolve(actx.resume()).then(begin,begin); }catch(e){ begin(); }
+  setTimeout(begin,300);
+}
+let stopTimer=null;
+function stopSoon(){
+  clearInterval(schedId); schedId=null;
+  if(stopTimer) return;
+  stopTimer=setTimeout(()=>{ stopTimer=null; stop(); }, S.winMs+400);
+}
+function stop(){
+  playGen++;
+  playing=false; simOn=false;
+  clearInterval(schedId); schedId=null;
+  clearTimeout(stopTimer); stopTimer=null;
+  clearClickTimers(); simClear();
+  /* 時刻が過ぎたものだけ「抜け」として閉じる。まだ来ていない拍まで抜け扱いにすると、
+     途中で止めただけで成績が崩れる */
+  sweep(performance.now()); pending=[];
+  $('playBtn').textContent='開始'; $('playBtn').classList.add('primary');
+  $('runState').textContent='';
+  drawAll();
+}
+const toggle = () => playing ? stop() : play();
+
+/* =======================================================================
+   5. 照合
+   期待音は「歩×手」ごとに1件。同じ歩でも右手と左手は別々に判定する。
+   これで左右のズレがそのまま量として出る。
+   ======================================================================= */
+function noteOn(note, vel, t){
+  held.add(note); needKb=true;
+  const tt = t - S.calMs;
+  let best=null, bd=1e9;
+  for(const e of pending){
+    if(e.done || e.midi!==note) continue;
+    const d=Math.abs(tt-e.t);
+    if(d<=S.winMs && d<bd){ bd=d; best=e; }
+  }
+  if(best){ addHit(best, note, vel, t, tt-best.t, 'ok'); return; }
+
+  /* 音が違う。どちらの手で弾いたつもりかは、窓の中でいちばん近い歩の
+     左右の期待音の中点で分ける */
+  let near=null, nd=1e9;
+  for(const e of pending){ const d=Math.abs(tt-e.t); if(d<nd){ nd=d; near=e; } }
+  if(near && nd<=S.winMs){
+    const st=SEQ.steps[mod(near.gi, seqLen())];
+    let hand;
+    if(S.hands!=='both') hand=S.hands;
+    else hand = note >= (st.R+st.L)/2 ? 'R' : 'L';
+    let cand=null, cd=1e9;
+    for(const e of pending){
+      if(e.done || e.hand!==hand) continue;
+      const d=Math.abs(tt-e.t);
+      if(d<=S.winMs && d<cd){ cd=d; cand=e; }
+    }
+    if(cand){ addHit(cand, note, vel, t, tt-cand.t, 'wrong'); return; }
+  }
+  /* どの期待音にも結びつかない打鍵 */
+  hits.push({gi:null, hand:null, pos:null, note, expMidi:null, vel, onT:t, offT:null,
+             offVel:null, dev:null, kind:'extra', pedal, stepMs:stepMs()});
+  soundingMap.set(note, hits[hits.length-1]);
+  onHit();
+}
+function addHit(e, note, vel, t, dev, kind){
+  e.done=true;
+  const h={gi:e.gi, hand:e.hand, pos:e.pos, note, expMidi:e.midi, vel, onT:t, offT:null,
+           offVel:null, dev, kind, accent:accentOf(mod(e.gi,seqLen())), pedal, stepMs:stepMs()};
+  hits.push(h);
+  soundingMap.set(note, h);
+  onHit();
+}
+/* 離鍵はいま判定に使わない。ただしスタッカート／レガートを後から足せるように、
+   時刻・オフベロシティ・ペダルの状態をこの時点で残しておく。
+   あとから足そうとすると、記録の形からやり直しになる */
+function noteOff(note, offVel, t){
+  const h=soundingMap.get(note);
+  if(h){ h.offT=t; h.offVel=offVel; soundingMap.delete(note); }
+  held.delete(note);
+  needKb=true;
+}
+const gateOf = h => (h.offT!=null && h.stepMs>0) ? (h.offT-h.onT)/h.stepMs : null;
+
+/* 窓が閉じた期待音を片づける。押されないまま閉じたものが「抜け」 */
+function sweep(now){
+  const tt=now - S.calMs;
+  for(let i=pending.length-1;i>=0;i--){
+    const e=pending[i];
+    if(tt > e.t + S.winMs){
+      if(!e.done){
+        hits.push({gi:e.gi, hand:e.hand, pos:e.pos, note:null, expMidi:e.midi,
+                   vel:null, onT:null, offT:null, offVel:null, dev:null,
+                   kind:'miss', accent:accentOf(mod(e.gi,seqLen())), pedal:false, stepMs:stepMs()});
+        dirty=true;   /* 抜けだけが増えていく間も画面を進める */
+      }
+      pending.splice(i,1);
+    }
+  }
+}
+const held=new Set();
+let needKb=false, dirty=false, lastDraw=0;
+function onHit(){ dirty=true; needKb=true; }
+
+/* =======================================================================
+   6. 画面の回し方
+   ======================================================================= */
+function uiLoop(){
+  if(!playing){ return; }
+  const now=performance.now();
+  sweep(now);
+  if(needKb){ drawKeyboard(); needKb=false; }
+  if(S.strip) drawStrip(now);
+  if(dirty && now-lastDraw>140){
+    lastDraw=now; dirty=false;
+    $('runState').textContent = gbeat<0 ? `カウントイン ${-gbeat}`
+      : `${lastGi+1} 打点め　弾いた ${played().length}`;
+    drawAll();
+  }else if(gbeat<0) $('runState').textContent=`カウントイン ${-gbeat}`;
+  requestAnimationFrame(uiLoop);
+}
+
+/* =======================================================================
+   7. 鍵盤（88鍵 A0=21 〜 C8=108）
+   ======================================================================= */
+const KB_LO=21, KB_HI=108;
+const isBlack = pc => pc===1||pc===3||pc===6||pc===8||pc===10;
+const BLACK_OFF={1:0.89, 3:1.11, 6:0.85, 8:1.00, 10:1.15};
+const KW=23, KH=118, BW=13.2, BH=74, KTOP=4;
+const WHITES=[]; for(let n=KB_LO;n<=KB_HI;n++) if(!isBlack(mod(n,12))) WHITES.push(n);
+const whiteX = n => WHITES.indexOf(n)*KW;
+const keyCX  = n => isBlack(mod(n,12)) ? whiteX(n-1)+BLACK_OFF[mod(n,12)]*KW : whiteX(n)+KW/2;
+
+function scalePcs(){
+  if(!SEQ) buildSeq();
+  return new Set(SEQ.semis.map(s=>mod(S.keyPc+s,12)));
+}
+function nextExpected(){
+  const out={R:null,L:null};
+  let bt=Infinity;
+  for(const e of pending){ if(!e.done && e.t<bt) bt=e.t; }
+  for(const e of pending){ if(!e.done && e.t===bt) out[e.hand]=e.midi; }
+  return out;
+}
+function drawKeyboard(){
+  const pcs = S.marks ? scalePcs() : null;
+  const nx = playing ? nextExpected() : {R:null,L:null};
+  const hcol = {R:'var(--s1)', L:'var(--s2)'};
+  let s='';
+  for(const n of WHITES){
+    const x=whiteX(n)+0.6;
+    s+=`<rect x="${x}" y="${KTOP}" width="${KW-1.2}" height="${KH}" rx="3" fill="var(--kw)" stroke="var(--kedge)" stroke-width="0.8"/>`;
+  }
+  /* 弾いている音（白鍵） */
+  for(const n of held){ if(isBlack(mod(n,12))||n<KB_LO||n>KB_HI) continue;
+    s+=`<rect x="${whiteX(n)+0.6}" y="${KTOP}" width="${KW-1.2}" height="${KH}" rx="3" fill="var(--accent)" opacity="0.62"/>`; }
+  /* つぎに弾く音（白鍵）：手の色で縁取る */
+  for(const h of ['R','L']){ const n=nx[h];
+    if(n==null||isBlack(mod(n,12))||n<KB_LO||n>KB_HI) continue;
+    s+=`<rect x="${whiteX(n)+1.6}" y="${KTOP+1}" width="${KW-3.2}" height="${KH-2}" rx="3" fill="none" stroke="${hcol[h]}" stroke-width="3"/>`; }
+  /* 調の音の印（白鍵） */
+  if(pcs) for(const n of WHITES){ const pc=mod(n,12);
+    if(!pcs.has(pc)) continue;
+    const tonic = pc===mod(S.keyPc,12);
+    s+=`<circle cx="${whiteX(n)+KW/2}" cy="${KTOP+KH-13}" r="${tonic?4.6:3}" fill="${tonic?'var(--accent)':'#9aa3b5'}"/>`; }
+
+  for(let n=KB_LO;n<=KB_HI;n++){
+    const pc=mod(n,12); if(!isBlack(pc)) continue;
+    const cx=keyCX(n);
+    s+=`<rect x="${cx-BW/2}" y="${KTOP}" width="${BW}" height="${BH}" rx="2.4" fill="var(--kb)" stroke="var(--kedge)" stroke-width="0.8"/>`;
+    if(held.has(n)) s+=`<rect x="${cx-BW/2}" y="${KTOP}" width="${BW}" height="${BH}" rx="2.4" fill="var(--accent)" opacity="0.72"/>`;
+    for(const h of ['R','L']) if(nx[h]===n)
+      s+=`<rect x="${cx-BW/2+1.2}" y="${KTOP+1}" width="${BW-2.4}" height="${BH-2}" rx="2" fill="none" stroke="${hcol[h]}" stroke-width="2.6"/>`;
+    if(pcs&&pcs.has(pc)){
+      const tonic = pc===mod(S.keyPc,12);
+      s+=`<circle cx="${cx}" cy="${KTOP+BH-11}" r="${tonic?4:2.7}" fill="${tonic?'var(--accent)':'#8b93a7'}"/>`;
+    }
+  }
+  for(let n=24;n<=108;n+=12)
+    s+=`<text x="${whiteX(n)+KW/2}" y="${KTOP+KH+16}" text-anchor="middle" font-size="11" `
+      +`fill="${n===60?'var(--accent)':'var(--dim2)'}" font-weight="${n===60?600:400}">C${n/12-1}</text>`;
+  $('kb').innerHTML=s;
+}
+
+/* =======================================================================
+   8. 描画の下ごしらえ
+   ======================================================================= */
+const C={};
+function loadColors(){
+  const cs=getComputedStyle(document.documentElement);
+  for(const k of ['fg','dim','dim2','line','grid','panel','panel2','ok','ng','warn','accent','s1','s2','s3','bg'])
+    C[k]=cs.getPropertyValue('--'+k).trim();
+}
+const HC = h => h==='R' ? C.s1 : C.s2;
+const HN = h => h==='R' ? '右手' : '左手';
+
+function fit(cv){
+  const r=cv.getBoundingClientRect();
+  const dpr=Math.min(devicePixelRatio||1,2);
+  const w=Math.max(1,Math.round(r.width)), h=Math.max(1,Math.round(r.height));
+  if(cv.width!==w*dpr||cv.height!==h*dpr){ cv.width=w*dpr; cv.height=h*dpr; }
+  const ctx=cv.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,w,h);
+  ctx.font='11px -apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif';
+  return {ctx,w,h};
+}
+function rr(ctx,x,y,w,h,r){
+  const rad=Math.min(r, Math.abs(w)/2, Math.abs(h)/2);
+  ctx.beginPath();
+  if(ctx.roundRect) ctx.roundRect(x,y,w,h,rad); else ctx.rect(x,y,w,h);
+}
+const quant=(a,q)=>{ if(!a.length) return null;
+  const b=[...a].sort((x,y)=>x-y), i=(b.length-1)*q, lo=Math.floor(i), hi=Math.ceil(i);
+  return b[lo]+(b[hi]-b[lo])*(i-lo); };
+const med = a => quant(a,0.5);
+const sd  = a => { if(a.length<2) return null;
+  const m=a.reduce((x,y)=>x+y,0)/a.length;
+  return Math.sqrt(a.reduce((s,v)=>s+(v-m)*(v-m),0)/(a.length-1)); };
+const f1 = v => v==null?'—':(v>=0?'+':'−')+Math.abs(v).toFixed(1);
+const f0 = v => v==null?'—':Math.round(v).toString();
+
+/* 打鍵として成立したもの（抜け・余分をのぞく） */
+const played = () => hits.filter(h=>h.dev!=null);
+
+/* 粒のそろい：隣り合う打鍵の間隔が、あるべき間隔からどれだけ外れたか。
+   クリックとのずれとは別の量。全体が一様に遅れていてもこちらは0になる。
+   ハノンでいう「粒がそろう」はこちら側の話なので、主指標として扱う */
+function ioiErrors(hand){
+  const a=played().filter(h=>h.hand===hand).sort((x,y)=>x.gi-y.gi);
+  const out=[];
+  for(let k=1;k<a.length;k++){
+    const dg=a[k].gi-a[k-1].gi;
+    if(dg<=0||dg>4) continue;          /* 抜けを挟んで飛んだところは間隔とみなさない */
+    out.push({gi:a[k].gi, e:(a[k].onT-a[k-1].onT) - dg*a[k].stepMs});
+  }
+  return out;
+}
+
+/* =======================================================================
+   9. リアルタイム帯（弾いている最中。既定では出さない）
+   16分を弾いている最中に散布図は読めない。点が縦にそろっているかどうかだけ見る
+   ======================================================================= */
+function drawStrip(now){
+  const {ctx,w,h}=fit($('strip'));
+  const span=4000, mid=h/2, sc=(h/2-8)/S.winMs;
+  ctx.strokeStyle=C.line; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(28,mid+.5); ctx.lineTo(w-4,mid+.5); ctx.stroke();
+  ctx.fillStyle=C.dim2; ctx.textAlign='right'; ctx.textBaseline='middle';
+  ctx.fillText('早',24,mid-h/4); ctx.fillText('遅',24,mid+h/4);
+  for(const hit of played()){
+    const age=now-hit.onT;
+    if(age>span||age<0) continue;
+    const x=w-6-(age/span)*(w-34);
+    const y=mid+clamp(hit.dev,-S.winMs,S.winMs)*sc;
+    ctx.globalAlpha=clamp(1-age/span,0.15,1);
+    ctx.fillStyle=HC(hit.hand);
+    ctx.beginPath(); ctx.arc(x,y,3,0,7); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
+
+/* =======================================================================
+   10. 主図：ダンベル散布図＋ベロシティの段
+   同じ歩の右手と左手を縦線でつなぐ。線の長さがそのまま左右のズレになるので、
+   左右差のグラフを別に持たなくてよい。縦軸の範囲は許容窓と同じにしてある
+   ======================================================================= */
+let mainGeom=null;
+function drawMain(){
+  const cv=$('chMain'); const {ctx,w,h}=fit(cv);
+  /* 縦の割り当て：ずれの段 → 余分の行 → すきま → ベロシティの段 → 横軸
+     すきまを詰めると、ずれの段の「−120」とベロシティの段の「127」が重なる */
+  const L=44, R=10, T=14, AX=22, MID=36;
+  const avail=h-T-AX;
+  const hDev=Math.round((avail-MID)*0.66), hVel=avail-hDev-MID;
+  const yDev0=T, yVel0=T+hDev+MID;
+  const maxGi=hits.reduce((m,x)=>x.gi!=null&&x.gi>m?x.gi:m, Math.max(seqLen()-1,1));
+  const X = gi => L + (w-L-R) * (maxGi? gi/maxGi : 0);
+  const YD = d => yDev0 + hDev/2 - clamp(d,-S.winMs,S.winMs)/S.winMs*(hDev/2-2);
+  const YV = v => yVel0 + hVel - (clamp(v,0,127)/127)*hVel;
+  mainGeom={L,R,T,w,h,hDev,hVel,yDev0,yVel0,maxGi,X,YD,YV};
+
+  /* --- 目盛り --- */
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  const sub = stepMs();                 /* 1分割ぶんの長さ。ずれの大きさの目安になる */
+  for(const v of [-S.winMs,-S.winMs/2,0,S.winMs/2,S.winMs]){
+    const y=YD(v);
+    ctx.strokeStyle = v===0 ? C.line : C.grid;
+    ctx.lineWidth = v===0 ? 1.4 : 1;
+    ctx.beginPath(); ctx.moveTo(L,Math.round(y)+.5); ctx.lineTo(w-R,Math.round(y)+.5); ctx.stroke();
+    ctx.fillStyle = v===0 ? C.dim : C.dim2;
+    ctx.fillText(v===0?'0':(v>0?'+':'−')+Math.abs(Math.round(v)), L-6, y);
+  }
+  /* 1分割の1/4（＝音楽的な「わずかなずれ」の目安）に薄い線 */
+  for(const v of [-sub/4, sub/4]){
+    if(Math.abs(v)>=S.winMs) continue;
+    const y=YD(v);
+    ctx.strokeStyle=C.grid; ctx.setLineDash([3,4]);
+    ctx.beginPath(); ctx.moveTo(L,y); ctx.lineTo(w-R,y); ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.fillStyle=C.dim2; ctx.textAlign='left';
+  ctx.fillText('ms　点線＝'+(S.subdiv===4?'16分':S.subdiv===3?'3連8分':'8分')+'の1/4', L+2, yDev0+7);
+
+  /* --- 抜けと余分 --- */
+  const yMiss=YD(0);
+  for(const x of hits){
+    if(x.kind==='miss'){
+      const px=X(x.gi);
+      ctx.strokeStyle=HC(x.hand); ctx.globalAlpha=.85; ctx.lineWidth=1.4;
+      ctx.beginPath(); ctx.moveTo(px-3.5,yMiss-3.5); ctx.lineTo(px+3.5,yMiss+3.5);
+      ctx.moveTo(px+3.5,yMiss-3.5); ctx.lineTo(px-3.5,yMiss+3.5); ctx.stroke();
+      ctx.globalAlpha=1;
+    }
+  }
+  const extras=hits.filter(x=>x.kind==='extra');
+  const yEx=yDev0+hDev+15;
+  ctx.strokeStyle=C.line; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(L,yEx+.5); ctx.lineTo(w-R,yEx+.5); ctx.stroke();
+  ctx.fillStyle=C.dim2; ctx.textAlign='right'; ctx.fillText('余分', L-6, yEx);
+  for(const x of extras){
+    /* 余分な打鍵に「ずれ」は定義できないので、正解の点と同じ縦軸には混ぜない */
+    let gi=0, bd=1e9;
+    for(const p of hits) if(p.gi!=null&&p.onT!=null){ const d=Math.abs(p.onT-x.onT); if(d<bd){bd=d;gi=p.gi;} }
+    ctx.fillStyle=C.ng;
+    ctx.beginPath(); ctx.arc(X(gi),yEx,2.6,0,7); ctx.fill();
+  }
+
+  /* --- ダンベル：同じ歩の左右をつなぐ --- */
+  const byGi=new Map();
+  for(const x of played()){
+    if(!byGi.has(x.gi)) byGi.set(x.gi,{});
+    byGi.get(x.gi)[x.hand]=x;
+  }
+  ctx.lineWidth=1;
+  for(const [gi,o] of byGi){
+    if(!o.R||!o.L) continue;
+    ctx.strokeStyle=C.dim2; ctx.globalAlpha=.75;
+    ctx.beginPath(); ctx.moveTo(X(gi),YD(o.R.dev)); ctx.lineTo(X(gi),YD(o.L.dev)); ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+  for(const x of played()){
+    ctx.fillStyle=HC(x.hand);
+    ctx.beginPath(); ctx.arc(X(x.gi),YD(x.dev), x.kind==='wrong'?2.6:3.1, 0,7); ctx.fill();
+    if(x.kind==='wrong'){   /* 音が違った打鍵は輪郭で分ける（色は手のために使っている） */
+      ctx.strokeStyle=C.ng; ctx.lineWidth=1.6;
+      ctx.beginPath(); ctx.arc(X(x.gi),YD(x.dev),5.2,0,7); ctx.stroke();
+    }
+  }
+
+  /* --- ベロシティの段 --- */
+  ctx.strokeStyle=C.grid; ctx.lineWidth=1;
+  for(const v of [0,64,127]){
+    const y=YV(v);
+    ctx.beginPath(); ctx.moveTo(L,Math.round(y)+.5); ctx.lineTo(w-R,Math.round(y)+.5); ctx.stroke();
+    ctx.fillStyle=C.dim2; ctx.textAlign='right'; ctx.textBaseline='middle';
+    ctx.fillText(v, L-6, y);
+  }
+  if(S.accPat!=='off'){
+    /* 2本の線が近いことがあるので、片方を左端、片方を右端に置いて重ならないようにする */
+    for(const [v,col,lab,side] of [[S.t1,C.ok,'強い音はここ以上','l'],[S.t2,C.warn,'弱い音はここ以下','r']]){
+      const y=YV(v);
+      ctx.strokeStyle=col; ctx.globalAlpha=.7; ctx.setLineDash([5,4]); ctx.lineWidth=1.2;
+      ctx.beginPath(); ctx.moveTo(L,y); ctx.lineTo(w-R,y); ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha=1;
+      /* 棒が文字を横切るので、地の色で下敷きを敷いてから書く */
+      const tw=ctx.measureText(lab).width, tx = side==='l' ? L+3 : w-R-3-tw;
+      ctx.fillStyle=C.panel; ctx.fillRect(tx-3, y-15, tw+6, 15);
+      ctx.fillStyle=col; ctx.textAlign='left'; ctx.textBaseline='middle';
+      ctx.fillText(lab, tx, y-7);
+    }
+  }
+  const bw=Math.max(1.6, Math.min(5, (w-L-R)/Math.max(maxGi,1)*0.34));
+  for(const x of played()){
+    const off = S.hands==='both' ? (x.hand==='R'? bw*0.6 : -bw*0.6) : 0;
+    const y=YV(x.vel);
+    ctx.fillStyle=HC(x.hand);
+    const bad = S.accPat!=='off' && x.accent!=null && (x.accent ? x.vel<S.t1 : x.vel>S.t2);
+    ctx.globalAlpha = bad ? 1 : 0.62;
+    rr(ctx, X(x.gi)+off-bw/2, y, bw, yVel0+hVel-y, 2); ctx.fill();
+    if(bad){ ctx.strokeStyle=C.ng; ctx.lineWidth=1.2;
+      rr(ctx, X(x.gi)+off-bw/2-1, y-1, bw+2, yVel0+hVel-y+1, 2); ctx.stroke(); }
+    ctx.globalAlpha=1;
+  }
+  ctx.fillStyle=C.dim2; ctx.textAlign='left'; ctx.textBaseline='bottom';
+  ctx.fillText('ベロシティ', L+2, yVel0-3);
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  ctx.fillStyle=C.dim2;
+  ctx.fillText('打点の通し番号 →', (L+w-R)/2, h-16);
+}
+
+/* =======================================================================
+   11. 細胞の中の位置ごと
+   ハノンは同じ形の細胞のくり返しなので、細胞の中の何番目かで集計すると
+   指の癖がそのまま出る。位置は運指とほぼ対応するが同一ではない（下行で変わる）
+   ======================================================================= */
+let posGeom=null;
+function posStats(){
+  const gl=SEQ?SEQ.groupLen:8;
+  const out=[];
+  for(let p=0;p<gl;p++){
+    const o={p};
+    for(const h of ['R','L']){
+      const a=played().filter(x=>x.hand===h&&x.pos===p).map(x=>x.dev);
+      o[h]= a.length ? {n:a.length, q1:quant(a,.25), q2:quant(a,.5), q3:quant(a,.75),
+                        lo:quant(a,.1), hi:quant(a,.9)} : null;
+    }
+    out.push(o);
+  }
+  return out;
+}
+function drawPos(){
+  const cv=$('chPos'); const {ctx,w,h}=fit(cv);
+  const L=40,R=8,T=10,B=36;
+  const st=posStats(), gl=st.length;
+  /* この図で見たいのは位置どうしの差で、その差は許容窓よりずっと小さいことが多い。
+     窓に合わせると箱が潰れて読めなくなるので、ここだけ縦軸を中身に合わせる（窓が上限） */
+  let ext=20;
+  for(const o of st) for(const hd of ['R','L']) if(o[hd])
+    ext=Math.max(ext, Math.abs(o[hd].lo), Math.abs(o[hd].hi));
+  const lim=clamp(Math.ceil(ext*1.15/5)*5, 20, S.winMs);
+  const Y = d => T+(h-T-B)/2 - clamp(d,-lim,lim)/lim*((h-T-B)/2-2);
+  const slot=(w-L-R)/gl;
+  posGeom={L,R,T,B,w,h,gl,slot,Y,st,lim};
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const v of [-lim,0,lim]){
+    const y=Y(v);
+    ctx.strokeStyle=v===0?C.line:C.grid; ctx.lineWidth=v===0?1.4:1;
+    ctx.beginPath(); ctx.moveTo(L,Math.round(y)+.5); ctx.lineTo(w-R,Math.round(y)+.5); ctx.stroke();
+    ctx.fillStyle=v===0?C.dim:C.dim2;
+    ctx.fillText(v===0?'0':(v>0?'+':'−')+Math.abs(Math.round(v)), L-6, y);
+  }
+  const hands = S.hands==='both'?['R','L']:[S.hands];
+  const bw=Math.min(15, slot/(hands.length+1.1));
+  for(let p=0;p<gl;p++){
+    const cx=L+slot*(p+0.5);
+    hands.forEach((hd,k)=>{
+      const o=st[p][hd]; if(!o) return;
+      const x=cx + (hands.length===2 ? (k===0? bw*0.6+1 : -bw*0.6-1) : 0);
+      ctx.strokeStyle=HC(hd); ctx.lineWidth=1.2; ctx.globalAlpha=.75;
+      ctx.beginPath(); ctx.moveTo(x,Y(o.lo)); ctx.lineTo(x,Y(o.hi)); ctx.stroke();
+      ctx.globalAlpha=1;
+      ctx.fillStyle=HC(hd); ctx.globalAlpha=.5;
+      rr(ctx, x-bw/2, Y(o.q3), bw, Math.max(2,Y(o.q1)-Y(o.q3)), 3); ctx.fill();
+      ctx.globalAlpha=1;
+      ctx.strokeStyle=HC(hd); ctx.lineWidth=2.2;
+      ctx.beginPath(); ctx.moveTo(x-bw/2,Y(o.q2)); ctx.lineTo(x+bw/2,Y(o.q2)); ctx.stroke();
+    });
+    ctx.fillStyle=C.dim2; ctx.textAlign='center'; ctx.textBaseline='top';
+    ctx.fillText(String(p+1), cx, h-B+6);
+  }
+  ctx.fillStyle=C.dim2; ctx.textAlign='center';
+  ctx.fillText('細胞の中の位置　箱＝中央の半分、線＝上下1割ずつを除いた幅', (L+w-R)/2, h-16);
+  ctx.fillStyle=C.dim2; ctx.textAlign='left'; ctx.textBaseline='top';
+  ctx.fillText('ms（縦軸は中身に合わせて ±'+lim+'）', L+2, T);
+}
+
+/* =======================================================================
+   12. 分布
+   ======================================================================= */
+let histGeom=null;
+function drawHist(){
+  const cv=$('chHist'); const {ctx,w,h}=fit(cv);
+  const L=34,R=8,T=10,B=38;
+  const useIoi=S.hist==='ioi';
+  const data={R:[],L:[]};
+  if(useIoi){ for(const hd of ['R','L']) data[hd]=ioiErrors(hd).map(x=>x.e); }
+  else      { for(const x of played()) data[x.hand].push(x.dev); }
+  /* ここも中身に合わせる。窓いっぱいに取ると、ほとんどの箱が空のまま真ん中だけ立つ */
+  let ext=20;
+  for(const hd of ['R','L']) for(const v of data[hd]) ext=Math.max(ext, Math.abs(v));
+  const lim=clamp(Math.ceil(ext*1.05/5)*5, 20, useIoi?400:S.winMs), nb=17, bwv=2*lim/nb;
+  const bins={R:new Array(nb).fill(0), L:new Array(nb).fill(0)};
+  for(const hd of ['R','L']) for(const v of data[hd])
+    bins[hd][clamp(Math.floor((v+lim)/bwv),0,nb-1)]++;
+  const maxN=Math.max(1,...bins.R,...bins.L);
+  const X = i => L+(w-L-R)*(i/nb), BWp=(w-L-R)/nb;
+  const Y = n => T+(h-T-B)*(1-n/maxN);
+  histGeom={L,R,T,B,w,h,nb,bwv,lim,bins,X,BWp,Y,maxN};
+  ctx.strokeStyle=C.grid; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(L,h-B+.5); ctx.lineTo(w-R,h-B+.5); ctx.stroke();
+  const hands = S.hands==='both'?['R','L']:[S.hands];
+  hands.forEach((hd,k)=>{
+    const sub=BWp/(hands.length)-1.5;
+    for(let i=0;i<nb;i++){
+      const n=bins[hd][i]; if(!n) continue;
+      const x=X(i)+k*(BWp/hands.length)+0.75;
+      ctx.fillStyle=HC(hd); ctx.globalAlpha=.8;
+      rr(ctx,x,Y(n),Math.max(1.5,sub),h-B-Y(n),2); ctx.fill();
+      ctx.globalAlpha=1;
+    }
+  });
+  /* 0の位置 */
+  const x0=L+(w-L-R)*0.5;
+  ctx.strokeStyle=C.line; ctx.lineWidth=1.4; ctx.setLineDash([4,3]);
+  ctx.beginPath(); ctx.moveTo(x0,T); ctx.lineTo(x0,h-B); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle=C.dim2; ctx.textAlign='center'; ctx.textBaseline='top';
+  ctx.fillText('0', x0, h-B+5);
+  ctx.fillText('−'+lim, L+10, h-B+5); ctx.fillText('+'+lim, w-R-12, h-B+5);
+  ctx.fillText(useIoi?'隣の音との間隔の外れ（ms）　0に集まっているほど粒がそろっている'
+                     :'クリックとのずれ（ms）　0からの偏りが癖、幅が安定性', (L+w-R)/2, h-17);
+  ctx.textAlign='right'; ctx.textBaseline='middle'; ctx.fillStyle=C.dim2;
+  ctx.fillText(String(maxN), L-5, Y(maxN)); ctx.fillText('0', L-5, h-B);
+}
+
+/* =======================================================================
+   13. 成績のタイル・表
+   ======================================================================= */
+function summary(){
+  const o={};
+  for(const hd of ['R','L']){
+    const a=played().filter(x=>x.hand===hd).map(x=>x.dev);
+    const io=ioiErrors(hd).map(x=>x.e);
+    o[hd]={ n:a.length, med:med(a), iqr:(a.length>1?quant(a,.75)-quant(a,.25):null),
+            ioiSd:sd(io) };
+  }
+  const gi=new Map();
+  for(const x of played()){ if(!gi.has(x.gi)) gi.set(x.gi,{}); gi.get(x.gi)[x.hand]=x.dev; }
+  const lr=[...gi.values()].filter(v=>v.R!=null&&v.L!=null).map(v=>v.R-v.L);
+  o.lr={ n:lr.length, med:med(lr), absMed:med(lr.map(Math.abs)) };
+  o.count={ ok:hits.filter(x=>x.kind==='ok').length,
+            wrong:hits.filter(x=>x.kind==='wrong').length,
+            miss:hits.filter(x=>x.kind==='miss').length,
+            extra:hits.filter(x=>x.kind==='extra').length };
+  const acc=played().filter(x=>x.accent!=null);
+  o.acc={ n:acc.length, ok:acc.filter(x=>x.accent? x.vel>=S.t1 : x.vel<=S.t2).length };
+  const g=played().map(gateOf).filter(v=>v!=null);
+  o.gate=med(g);
+  return o;
+}
+function drawTiles(){
+  const s=summary();
+  const pct = (a,b)=> b? Math.round(a/b*100)+'%' : '—';
+  const two = (fn) => `<span class="r">右 ${fn('R')}</span>　<span class="l">左 ${fn('L')}</span>`;
+  const t=[];
+  t.push(`<div class="tile"><div class="t">粒のそろい（間隔のばらつき）</div>
+    <div class="v">${s.R.ioiSd!=null?s.R.ioiSd.toFixed(1):'—'}<span class="u">ms</span></div>
+    <div class="s">${two(h=>s[h].ioiSd!=null?s[h].ioiSd.toFixed(1):'—')}</div></div>`);
+  t.push(`<div class="tile"><div class="t">クリックとのずれ（癖）</div>
+    <div class="v">${f1(s.R.med)}<span class="u">ms</span></div>
+    <div class="s">${two(h=>f1(s[h].med))}</div></div>`);
+  t.push(`<div class="tile"><div class="t">ずれの安定性（四分位範囲）</div>
+    <div class="v">${s.R.iqr!=null?s.R.iqr.toFixed(1):'—'}<span class="u">ms</span></div>
+    <div class="s">${two(h=>s[h].iqr!=null?s[h].iqr.toFixed(1):'—')}</div></div>`);
+  t.push(`<div class="tile"><div class="t">左右のズレ（右−左）</div>
+    <div class="v">${f1(s.lr.med)}<span class="u">ms</span></div>
+    <div class="s">大きさの中央値 ${s.lr.absMed!=null?s.lr.absMed.toFixed(1):'—'} ms・${s.lr.n}組</div></div>`);
+  const tot=s.count.ok+s.count.wrong+s.count.miss;
+  t.push(`<div class="tile"><div class="t">音の正しさ</div>
+    <div class="v">${pct(s.count.ok,tot)}</div>
+    <div class="s">正解 ${s.count.ok}・音違い ${s.count.wrong}・抜け ${s.count.miss}・余分 ${s.count.extra}</div></div>`);
+  if(S.accPat!=='off')
+    t.push(`<div class="tile"><div class="t">アクセントの達成</div>
+      <div class="v">${pct(s.acc.ok,s.acc.n)}</div>
+      <div class="s">${s.acc.ok} / ${s.acc.n} 打</div></div>`);
+  t.push(`<div class="tile"><div class="t">ゲート率（参考・判定はしません）</div>
+    <div class="v">${s.gate!=null?Math.round(s.gate*100):'—'}<span class="u">%</span></div>
+    <div class="s">1打ぶんの長さに対する押している時間</div></div>`);
+  $('tiles').innerHTML=t.join('');
+}
+function drawTable(){
+  const st=posStats();
+  let s='<table class="tbl"><thead><tr><th>位置</th><th>右 中央値</th><th>右 幅</th><th>右 打数</th>'
+       +'<th>左 中央値</th><th>左 幅</th><th>左 打数</th></tr></thead><tbody>';
+  for(const o of st){
+    const c=h=>o[h]?[f1(o[h].q2), (o[h].q3-o[h].q1).toFixed(1), o[h].n]:['—','—','0'];
+    const r=c('R'), l=c('L');
+    s+=`<tr><td>${o.p+1}</td><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td>`
+      +`<td>${l[0]}</td><td>${l[1]}</td><td>${l[2]}</td></tr>`;
+  }
+  s+='</tbody></table>';
+  $('tableBox').innerHTML=s;
+}
+function drawAll(){
+  if(!SEQ) buildSeq();
+  drawTiles(); drawMain(); drawPos(); drawHist(); drawTable();
+}
+
+/* =======================================================================
+   14. あてる（ホバー）
+   ======================================================================= */
+function bindTip(cv, tipEl, find){
+  const show=(ev)=>{
+    const r=cv.getBoundingClientRect();
+    const x=ev.clientX-r.left, y=ev.clientY-r.top;
+    const t=find(x,y);
+    if(!t){ tipEl.style.opacity=0; return; }
+    tipEl.innerHTML=t.html;
+    tipEl.style.opacity=1;
+    const tw=tipEl.offsetWidth, th=tipEl.offsetHeight;
+    tipEl.style.left=clamp(t.x-tw/2, 2, r.width-tw-2)+'px';
+    tipEl.style.top =clamp(t.y-th-10, 2, r.height-th-2)+'px';
+  };
+  cv.addEventListener('mousemove',show);
+  cv.addEventListener('mouseleave',()=>{ tipEl.style.opacity=0; });
+}
+function initTips(){
+  bindTip($('chMain'), $('tipMain'), (x,y)=>{
+    if(!mainGeom||!played().length) return null;
+    let best=null,bd=1e9;
+    for(const p of played()){
+      const px=mainGeom.X(p.gi), py=(y<mainGeom.yVel0-8)?mainGeom.YD(p.dev):mainGeom.YV(p.vel);
+      const d=(px-x)*(px-x)+(py-y)*(py-y);
+      if(d<bd){bd=d;best={p,px,py};}
+    }
+    if(!best||bd>26*26) return null;
+    const p=best.p, g=gateOf(p);
+    return {x:best.px, y:best.py, html:
+      `<b>${HN(p.hand)}</b>　${p.gi+1}歩め・位置${p.pos+1}<br>`
+      +`<span class="k">ずれ</span> <b>${f1(p.dev)}</b> ms　`
+      +`<span class="k">強さ</span> <b>${p.vel}</b>`
+      +(g!=null?`<br><span class="k">ゲート率</span> ${Math.round(g*100)}%`:'')
+      +(p.kind==='wrong'?'<br><span style="color:var(--ng)">音が違います</span>':'')};
+  });
+  bindTip($('chPos'), $('tipPos'), (x,y)=>{
+    if(!posGeom) return null;
+    const p=Math.floor((x-posGeom.L)/posGeom.slot);
+    if(p<0||p>=posGeom.gl) return null;
+    const o=posGeom.st[p];
+    const line=h=>o[h]?`<span class="k">${HN(h)}</span> 中央 <b>${f1(o[h].q2)}</b> ms・幅 ${(o[h].q3-o[h].q1).toFixed(1)}・${o[h].n}打`:'';
+    const body=['R','L'].map(line).filter(Boolean).join('<br>');
+    if(!body) return null;
+    return {x:posGeom.L+posGeom.slot*(p+0.5), y:posGeom.Y(0), html:`<b>位置 ${p+1}</b><br>${body}`};
+  });
+  bindTip($('chHist'), $('tipHist'), (x,y)=>{
+    if(!histGeom) return null;
+    const i=Math.floor((x-histGeom.L)/histGeom.BWp);
+    if(i<0||i>=histGeom.nb) return null;
+    const lo=(-histGeom.lim+i*histGeom.bwv), hi=lo+histGeom.bwv;
+    const r=histGeom.bins.R[i], l=histGeom.bins.L[i];
+    if(!r&&!l) return null;
+    return {x:histGeom.X(i)+histGeom.BWp/2, y:histGeom.Y(Math.max(r,l)), html:
+      `<b>${lo.toFixed(0)}〜${hi.toFixed(0)} ms</b><br>`
+      +`<span class="k">右手</span> ${r} 打　<span class="k">左手</span> ${l} 打`};
+  });
+}
+
+/* =======================================================================
+   15. ためし演奏（電子ピアノが無くても動きを見るため）
+   実機と同じ handleMessage を通す。わざと癖のある演奏にしてある
+   ======================================================================= */
+let simOn=false, simTimers=[], simBias=3;   /* simBias はコンソールから変えて確かめるための口 */
+function simClear(){ simTimers.forEach(clearTimeout); simTimers=[]; }
+const gauss = () => { let u=0,v=0; while(!u)u=Math.random(); while(!v)v=Math.random();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); };
+function simSchedule(gi, t){
+  const st=SEQ.steps[mod(gi,seqLen())];
+  const hands = S.hands==='both'?['R','L']:[S.hands];
+  for(const hd of hands){
+    if(Math.random()<0.012) continue;                       /* たまに抜かす */
+    const posBias = st.pos===3 ? 11 : (st.pos===0 ? -4 : 0);  /* 4つめの指が遅れる癖 */
+    const handBias = hd==='L' ? 6 : 0;                       /* 左手がわずかに遅い */
+    const dev = handBias + posBias + gauss()*7 + simBias;
+    const wrong = Math.random()<0.008;
+    const note = clamp(st[hd] + (wrong?1:0), 21, 108);
+    const want = accentOf(mod(gi,seqLen()));
+    const base = want===true ? S.t1+10 : want===false ? S.t2-12 : 74;
+    const vel = clamp(Math.round(base+gauss()*9), 1, 127);
+    const at = t + dev, gate = stepMs()*(0.55+Math.random()*0.3);
+    const d1=at-performance.now(), d2=at+gate-performance.now();
+    if(d1<-500) continue;
+    simTimers.push(setTimeout(()=>{ handleMessage([0x90,note,vel], performance.now()); },Math.max(0,d1)));
+    simTimers.push(setTimeout(()=>{ handleMessage([0x80,note,0],  performance.now()); },Math.max(0,d2)));
+  }
+}
+
+/* =======================================================================
+   16. 画面の組み立てと操作
+   ======================================================================= */
+function fillSelects(){
+  $('pattern').innerHTML =
+    '<optgroup label="ハノン 第1部">'
+    + HANON.map(h=>`<option value="hanon${h.n}">第${h.n}番</option>`).join('')
+    + '</optgroup><optgroup label="音階など">'
+    + Object.entries(RUNS).map(([k,v])=>`<option value="${k}">${v.n}</option>`).join('')
+    + '</optgroup>';
+  $('key').innerHTML = KEYS.map((k,i)=>`<option value="${i}">${k}</option>`).join('');
+  $('mode').innerHTML = Object.entries(MODES).map(([k,v])=>`<option value="${k}">${v.n}</option>`).join('');
+  $('startOct').innerHTML = [3,4,5,6].map(o=>`<option value="${o}">${'C'+(o-1)}のあたり（${o===5?'中央ハ':'C'+(o-1)}）</option>`).join('');
+  $('clickVoiceSeg').innerHTML = Object.entries(CLICK_VOICE)
+    .map(([k,v])=>`<button data-v="${k}">${v.name}</button>`).join('');
+}
+function renderPorts(){
+  const sel=$('clickPort');
+  const outs=midi?[...midi.outputs.values()]:[];
+  sel.innerHTML = outs.length
+    ? outs.map(o=>`<option value="${o.id}"${o.id===S.clickPort?' selected':''}>${o.name}</option>`).join('')
+    : '<option value="">（MIDIにつなぐと出ます）</option>';
+}
+function renderControls(){
+  $('bpm').value=S.bpm; $('subdiv').value=S.subdiv; $('countIn').value=S.countIn;
+  $('loopChk').checked=S.loop;
+  $('pattern').value=S.pattern; $('key').value=S.keyPc; $('mode').value=S.mode;
+  $('len').value=S.len; $('startOct').value=S.startOct; $('hands').value=S.hands; $('gap').value=S.gap;
+  $('win').value=S.winMs; $('accPat').value=S.accPat; $('t1').value=S.t1; $('t2').value=S.t2;
+  $('cal').value=Math.round(S.calMs);
+  $('clickVol').value=S.clickVel; $('clickVolVal').textContent=S.clickVel;
+  $('clickDryBtn').classList.toggle('on',S.clickDry);
+  $('stripChk').checked=S.strip; $('markChk').checked=S.marks;
+  document.querySelectorAll('#clickOutSeg button').forEach(b=>b.classList.toggle('on',b.dataset.v===S.clickOut));
+  document.querySelectorAll('#clickVoiceSeg button').forEach(b=>b.classList.toggle('on',b.dataset.v===S.clickVoice));
+  document.querySelectorAll('#histSeg button').forEach(b=>b.classList.toggle('on',b.dataset.v===S.hist));
+  const isHanon=S.pattern.startsWith('hanon');
+  $('lenLabel').textContent = isHanon ? '細胞の数' : 'オクターブ数';
+  $('len').max = isHanon ? 24 : 5;
+  $('strip').style.display = S.strip ? 'block' : 'none';
+  buildSeq();
+  const p=SEQ.steps;
+  const lo=Math.min(...p.map(x=>S.hands==='R'?x.R:x.L)), hi=Math.max(...p.map(x=>S.hands==='L'?x.L:x.R));
+  const nm = n => ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'][mod(n,12)]+(Math.floor(n/12)-1);
+  const bars=(p.length/S.subdiv/4);
+  $('patHint').innerHTML =
+    `${p.length} 打点（${(p.length/S.subdiv).toFixed(1)} 拍・およそ ${bars.toFixed(1)} 小節）。`
+    + `音域 <b>${nm(lo)} 〜 ${nm(hi)}</b>。`
+    + (isHanon ? `ハノンの移調は半音ではなく<b>音階の中の移調</b>です。旋法を変えると、同じ指の形のまま音階だけが入れ替わります。`
+               : `旋法を変えると音階そのものが変わります。`)
+    + (S.pattern==='hanon12'||S.pattern==='hanon13' ? '　※この曲は主音より上から始まります。' : '')
+    /* ユニゾンだと左右がまったく同じ鍵になる。MIDIには「どちらの手か」の情報が無いので、
+       1つの打鍵をどちらの手のものと見るか決められない */
+    + (S.hands==='both'&&S.gap===0
+       ? ' <b style="color:var(--warn)">両手が同じ鍵になるため、左右を見分けられません（片手ずつか、間隔を1オクターブ以上にしてください）。</b>' : '');
+  const total=(p.length*stepMs()/1000);
+  const sm=stepMs();
+  /* 窓が1打点より広いと、隣の打点まで窓に入る。同じ音が近くに出てくる曲では
+     取り違えの元になるので、そのときだけ知らせる */
+  const wide = S.winMs > sm*0.9;
+  $('winHint').innerHTML = `1打点 ${sm.toFixed(1)} ms・全体 ${total.toFixed(1)} 秒`
+    + (wide ? ` <b style="color:var(--warn)">← 窓が1打点に近く、隣の打点と取り違えることがあります（${Math.floor(sm*0.7/5)*5} ms 以下を推奨）</b>` : '');
+  $('calHint').textContent = S.calMs ? `いまは ${f1(S.calMs)} ms を基準にしています` : '基準は未調整です';
+  $('nextHint').textContent = playing ? '' : '青い縁取り＝つぎに弾く音';
+  needKb=true; drawKeyboard();
+}
+function calibrate(){
+  const a=played().map(x=>x.dev);
+  if(a.length<8){ $('calHint').textContent='打鍵が足りません（8打以上ためしてください）'; return; }
+  S.calMs += med(a);
+  /* すでに測ったぶんも基準を引き直す。そうしないと図が前半と後半で食い違う */
+  const m=med(a);
+  for(const h of hits) if(h.dev!=null) h.dev-=m;
+  renderControls(); drawAll(); save();
+}
+
+function bind(){
+  $('midiBtn').onclick=connectMidi;
+  $('playBtn').onclick=toggle;
+  $('simBtn').onclick=()=>{ if(playing) stop(); simOn=true; play(); };
+  $('clearBtn').onclick=()=>{ hits=[]; soundingMap.clear(); drawAll(); };
+  document.addEventListener('keydown',e=>{
+    if(e.code==='Space' && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)){
+      e.preventDefault(); toggle();
+    }
+  });
+  /* 課題やテンポを変えると、いま照合中の期待音の中身と食い違う。演奏中なら先に止める。
+     0 は正しい入力なので ||既定値 では受け取れない（ずれのゼロ点で効く） */
+  const num=(id,key,lo,hi,halt)=>{ $(id).oninput=e=>{
+    const v=parseFloat(e.target.value);
+    if(isNaN(v)) return;
+    if(halt&&playing) stop();
+    S[key]=clamp(v,lo,hi); saveSoon(); renderControls(); drawAll(); }; };
+  num('bpm','bpm',20,240,true); num('len','len',1,24,true);
+  num('win','winMs',20,400); num('t1','t1',1,127); num('t2','t2',1,127);
+  num('cal','calMs',-300,300);
+  const sel=(id,key,cast,halt)=>{ $(id).onchange=e=>{
+    if(halt&&playing) stop();
+    S[key]=cast?cast(e.target.value):e.target.value;
+    saveSoon(); renderControls(); drawAll(); }; };
+  sel('subdiv','subdiv',Number,true); sel('countIn','countIn',Number,true);
+  sel('pattern','pattern',null,true); sel('key','keyPc',Number,true); sel('mode','mode',null,true);
+  sel('startOct','startOct',Number,true); sel('hands','hands',null,true); sel('gap','gap',Number,true);
+  sel('accPat','accPat');
+  $('clickPort').onchange=e=>{ S.clickPort=e.target.value; saveSoon(); };
+  $('loopChk').onchange=e=>{ S.loop=e.target.checked; saveSoon(); };
+  $('stripChk').onchange=e=>{ S.strip=e.target.checked; saveSoon(); renderControls(); };
+  $('markChk').onchange=e=>{ S.marks=e.target.checked; saveSoon(); needKb=true; drawKeyboard(); };
+  $('clickVol').oninput=e=>{ S.clickVel=clamp(+e.target.value||52,10,127);
+    $('clickVolVal').textContent=S.clickVel; saveSoon(); };
+  $('clickDryBtn').onclick=()=>{ S.clickDry=!S.clickDry; renderControls(); saveSoon(); };
+  $('clickTestBtn').onclick=clickTest;
+  $('calBtn').onclick=calibrate;
+  $('calResetBtn').onclick=()=>{ S.calMs=0; renderControls(); save(); };
+  document.querySelectorAll('#clickOutSeg button').forEach(b=>
+    b.onclick=()=>{ S.clickOut=b.dataset.v; renderControls(); saveSoon(); });
+  document.querySelectorAll('#clickVoiceSeg button').forEach(b=>
+    b.onclick=()=>{ S.clickVoice=b.dataset.v; renderControls(); saveSoon(); });
+  document.querySelectorAll('#histSeg button').forEach(b=>
+    b.onclick=()=>{ S.hist=b.dataset.v; renderControls(); drawHist(); saveSoon(); });
+  let rt=null;
+  addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(()=>{ drawAll(); },120); });
+}
+
+load(); loadColors(); fillSelects(); bind(); initTips();
+renderControls(); drawAll();
+if(!navigator.requestMIDIAccess)
+  setMidiState('このブラウザは Web MIDI API に非対応です（iPadでは MIDIWeb Browser、Macでは Chrome）。「ためし演奏」だけ動きます','warn');
+</script>
+</body>
+</html>
