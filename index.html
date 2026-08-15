@@ -685,7 +685,7 @@ function play(){
   /* 記録は毎回まっさらにする。歩の番号は0から振り直されるので、前の回を
      残すと横軸の同じ位置に別の回の点が重なってしまう */
   hits=[]; held.clear(); susNotes.clear(); velMap.clear(); soundingMap.clear();
-  scoreBar=-1;
+  scoreBar=-1; lastPlan=null;
   if(S.clickOut==='midi'){ const o=clickPort(); if(o) clickSetup(o); }
   $('playBtn').textContent='止める'; $('playBtn').classList.remove('primary');
   let started=false;
@@ -881,10 +881,14 @@ const CLEF_BOTTOM={t:30, b:18};        /* 下から1本目の線にあたる段�
    縮めると、iPad の縦画面で譜面ごと小さくなって読めなくなる */
 let SCORE_W=1000;
 let scoreGeom=null, scoreBar=-1;
+/* 幅は、変わったと分かったときだけ測る。毎回測ると、譜面の高さが変わる → 縦の
+   スクロールバーが出入りする → 幅が十数px変わる → また組み直す、という往復に
+   なりかねない。少しの差は無視する */
+let needMeasure=true;
 function measureScore(){
   const w=$('score').getBoundingClientRect().width;
   const nw=Math.max(520, Math.round(w||1000));
-  if(nw!==SCORE_W){ SCORE_W=nw; return true; }
+  if(Math.abs(nw-SCORE_W)>24){ SCORE_W=nw; return true; }
   return false;
 }
 
@@ -904,45 +908,65 @@ function barNotes(b){
   }
   return out;
 }
-/* 加線が少なくて済むほうの音部記号を、小節ごと・手ごとに選ぶ。
-   ハノンは上行しきると4オクターブ近く動くので、固定にすると加線だらけになる */
-/* 加線が少なくて済むほうを選ぶ。ただし僅差のときは、その段の本来の記号に寄せる
-   （下の段にト音記号が出るのは、そうしないと加線だらけになるときだけにしたい） */
-function pickClef(notes, prefer){
-  const cost=(lo,hi)=>notes.reduce((s,o)=>s+Math.max(0,o.step-hi)+Math.max(0,lo-o.step),0);
-  const t=cost(30,38)+(prefer==='b'?5:0), b=cost(18,26)+(prefer==='t'?5:0);
-  return t<=b ? 't' : 'b';
+/* 音部記号とオクターブ記号を一緒に選ぶ。
+   ハノンやスケールは上行しきると4オクターブ近く動くので、記号を固定にすると
+   加線だらけになって枠からはみ出す。8va・8vb（必要なら15ma・15mb）まで許して、
+   加線がいちばん少なくなる組み合わせを、見えている2小節ぶんまとめて決める。
+   k は書く位置の移動で、k=1 なら1オクターブ低く書いて 8va を添える。 */
+const OTT_NAME={ '1':'8va', '2':'15ma', '-1':'8vb', '-2':'15mb' };
+/* 加線は、1〜2本なら誰でも読める。遠ざかるほど急に読みにくくなるので、
+   はみ出しは2段ぶんまで見逃し、そこから先は二乗で効かせる。こうしないと、
+   加線1本で済むところにまで 8vb が出てしまう */
+function planCost(steps, clef, k, prefer){
+  const b0=CLEF_BOTTOM[clef];
+  let c=0;
+  for(const st of steps){
+    const d=st-7*k;
+    const e=Math.max(0, Math.max(0,d-(b0+8)) + Math.max(0,b0-d) - 2);
+    c+=e*e;
+  }
+  return c + (clef===prefer?0:10) + Math.abs(k)*30;   /* 記号が増えるほど読みにくい */
+}
+let lastPlan=null;
+function pickStaffPlan(steps, prefer){
+  let best=null;
+  for(const clef of ['t','b']) for(let k=-2;k<=2;k++){
+    const c=planCost(steps,clef,k,prefer);
+    if(!best||c<best.c) best={clef,k,c};
+  }
+  /* 前と同じ組み合わせでそこそこ収まるなら、そのまま使う。小節が入れ替わるたびに
+     記号が行き来すると、譜面がオクターブ単位で飛び跳ねて読めなくなる */
+  if(lastPlan){
+    const c=planCost(steps,lastPlan.clef,lastPlan.k,prefer);
+    if(c<=best.c+25) best={clef:lastPlan.clef, k:lastPlan.k, c};
+  }
+  lastPlan={clef:best.clef, k:best.k};
+  return best;
 }
 
 function drawScore(){
   if(!SEQ) buildSeq();
   const cur=curBar();
-  if(measureScore()) scoreBar=-1;
+  if(needMeasure){ needMeasure=false; if(measureScore()) scoreBar=-1; }
   if(cur!==scoreBar){ scoreBar=cur; drawScoreStatic(cur); needScore=true; }
   if(needScore || !playing){ drawScoreLive(); needScore=false; }
 }
 
+/* 楽譜は1段だけにする。両手のときも、左手は右手と同じ音度をオクターブ下で弾くだけ
+   なので、段を2つ並べても同じ形が2回出るだけになる。1段にした幅と高さを、
+   音符そのものの大きさに回したほうが読みやすい。 */
+const scoreHand = () => S.hands==='L' ? 'L' : 'R';
+
 function drawScoreStatic(cur){
-  const staves = S.hands==='both' ? ['R','L'] : [S.hands];
-  const nSt=staves.length;
+  const hand=scoreHand();
   const sig=SEQ.key.sig, nAcc=Math.abs(sig);
   const bs=barSteps(), total=2*bs;
 
   /* 五線の大きさは、横に入るぶんだけ大きくする。符頭の幅は五線の間隔に比例するので、
      大きくしすぎると音符どうしがぶつかる。「打点の間隔が符頭1.5個ぶんは空く」を
-     満たす最大の大きさを求め、上限で頭を打つ。調号が多いほど左が詰まるので、
-     そのぶんも式に入れている */
+     満たす最大の大きさを求め、上限で頭を打つ */
   const denom = 6 + 1.1*nAcc + 3.6*bs;
-  setSP(clamp(Math.floor((SCORE_W-34)/denom), 9, 20));
-
-  const LED=3.5*SP, GAPST=5.5*SP;                    /* 加線の余白と、段どうしの間 */
-  const paperTop=20;
-  const topY = k => paperTop + LED + k*(4*SP+GAPST); /* 上から1本目の線 */
-  const botY = k => topY(k)+4*SP;
-  const paperBot=botY(nSt-1)+LED;
-  const laneTop=paperBot+12, laneH=120, laneY0=laneTop+laneH/2;
-  const H=laneTop+laneH+8;
-  $('score').setAttribute('viewBox',`0 0 ${SCORE_W} ${H}`);
+  setSP(clamp(Math.floor((SCORE_W-34)/denom), 9, 22));
 
   const KSW=(sig>=0?1.10:0.95)*SP;
   /* 音部記号と調号は、2小節ぶんの段の左端に1回だけ置く（本来の楽譜と同じ）。
@@ -951,169 +975,188 @@ function drawScoreStatic(cur){
   const X0=1.8*SP, ksX=X0+4.2*SP, ksEnd=ksX+nAcc*KSW;
   const noteX0=ksEnd+1.6*SP, noteX1=SCORE_W-1.8*SP, span=noteX1-noteX0;
   const nx=(slot,j)=>noteX0 + span*((slot*bs+j)+0.5)/total;
-  const midX=noteX0+span/2;                      /* 2小節の境の小節線 */
+  const slotW=span/total, midX=noteX0+span/2, xEnd=SCORE_W-1.0*SP;
 
   const bars=[cur,cur+1];
-  let s='';
-  /* 譜面の地。ずれのレーンは地の外（暗い面）に置く。線の色の検証は暗い面で
-     しているので、そこから外さない */
-  s+=`<rect x="0" y="${paperTop}" width="${SCORE_W}" height="${paperBot-paperTop}" rx="10" fill="var(--paper)"/>`;
+  const shift = hand==='L' ? -7*Math.round((S.gap||0)/12) : 0;
+  const perBar = bars.map(b=>barNotes(b).map(o=>({...o, step:o.step+shift})));
+  const all = perBar.flat();
+  const prefer = hand==='L' ? 'b' : 't';
+  const plan = pickStaffPlan(all.length?all.map(o=>o.step):[34], prefer);
+  const bottomStep=CLEF_BOTTOM[plan.clef], midStep=bottomStep+4;
+  /* ここから下は「五線のいちばん下の線を y=0」とした座標で組む。
+     組み終わってから中身の高さを測って全体をずらすので、上や下が切れない */
+  const yOf = st => -((st-7*plan.k)-bottomStep)*HS;
+  let yLo=-4*SP, yHi=0;
+  const track = y => { if(y<yLo) yLo=y; if(y>yHi) yHi=y; };
 
-  /* 五線・小節線・中括弧。2小節でひと続きの段になる */
-  const yT=topY(0), yB=botY(nSt-1), xEnd=SCORE_W-1.0*SP;
-  for(let k=0;k<nSt;k++) for(let i=0;i<5;i++)
-    s+=`<rect x="${X0.toFixed(1)}" y="${(topY(k)+i*SP-0.55).toFixed(1)}" width="${(xEnd-X0).toFixed(1)}" height="1.1" fill="var(--ink)" opacity="0.85"/>`;
+  let g='';                                   /* 五線より内側（ずらす対象） */
+  for(let i=0;i<5;i++)
+    g+=`<rect x="${X0.toFixed(1)}" y="${(-i*SP-0.55).toFixed(1)}" width="${(xEnd-X0).toFixed(1)}" height="1.1" fill="var(--ink)" opacity="0.85"/>`;
   for(const bx of [X0-0.7, midX-0.7, xEnd-1.4])
-    s+=`<rect x="${bx.toFixed(1)}" y="${yT}" width="1.4" height="${yB-yT}" fill="var(--ink)"/>`;
-  if(nSt===2){
-    const bsz=(yB-yT)/798;
-    s+=`<path d="${GLYPH.brace}" transform="translate(${(X0-4-64*bsz).toFixed(2)},${yB.toFixed(2)}) `
-      +`scale(${bsz.toFixed(5)},${(-bsz).toFixed(5)})" fill="var(--ink)"/>`;
+    g+=`<rect x="${bx.toFixed(1)}" y="${-4*SP}" width="1.4" height="${4*SP}" fill="var(--ink)"/>`;
+  if(plan.clef==='t') g+=glyph('gClef', X0+5, yOf(32+7*plan.k), 200, 'var(--ink)');
+  else                g+=glyph('fClef', X0+5, yOf(24+7*plan.k), 600, 'var(--ink)');
+  const ord = sig>=0?SHARP_STEPS:FLAT_STEPS;
+  for(let i=0;i<nAcc;i++){
+    const st = ord[i] - (plan.clef==='t'?0:14);
+    g+=glyph('acc'+(sig>=0?1:-1), ksX+i*KSW, yOf(st+7*plan.k), 400, 'var(--ink)');
   }
-  /* 小節番号は、それぞれの小節の音符の真ん中の上に */
+
+  const NHW=0.58*SP;
+  bars.forEach((b,bi)=>{
+    const slot=mod(b,2), ns=perBar[bi];
+    /* 符尾と連桁は拍ごとにまとめる。連桁は水平にして group の端の位置にそろえる
+       （斜めにすると、オクターブ跳躍のある曲で途中の符尾が桁に届かない） */
+    const groups=[];
+    for(const o of ns){
+      const gi=Math.floor(o.j/S.subdiv);
+      (groups[gi]=groups[gi]||[]).push(o);
+    }
+    const shown=new Set();     /* 臨時記号は小節の中で一度出したら繰り返さない */
+    for(const grp of groups){
+      if(!grp) continue;
+      const up = grp.reduce((s2,o)=>s2+o.step,0)/grp.length <= midStep+7*plan.k;
+      const ys = grp.map(o=>yOf(o.step));
+      const beamY = up ? Math.min(...ys)-3.0*SP : Math.max(...ys)+3.0*SP;
+      const nBeam = S.subdiv>=4 ? 2 : 1;
+      track(beamY-0.6*SP); track(beamY+0.6*SP+(nBeam-1)*0.95*SP*(up?1:-1));
+      for(const o of grp){
+        const x=nx(slot,o.j), y=yOf(o.step), d=o.step-7*plan.k;
+        track(y-0.5*SP); track(y+0.5*SP);
+        const inner=[bottomStep, bottomStep+8];
+        if(d>inner[1]||d<inner[0]){
+          const dir=d>inner[1]?2:-2, from=d>inner[1]?inner[1]+2:inner[0]-2;
+          for(let L=from; dir>0?L<=d:L>=d; L+=dir)
+            g+=`<rect x="${(x-0.92*SP).toFixed(1)}" y="${(-(L-bottomStep)*HS-0.6).toFixed(1)}" width="${(1.84*SP).toFixed(1)}" height="1.2" fill="var(--ink)"/>`;
+        }
+        g+=`<ellipse cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" rx="${(0.60*SP).toFixed(1)}" ry="${(0.42*SP).toFixed(1)}" `
+          +`transform="rotate(-21 ${x.toFixed(1)} ${y.toFixed(1)})" fill="var(--ink)"/>`;
+        const sx = up ? x+NHW-0.5 : x-NHW+0.5;
+        g+=`<rect x="${(sx-0.6).toFixed(1)}" y="${Math.min(y,beamY).toFixed(1)}" width="1.3" height="${Math.abs(beamY-y).toFixed(1)}" fill="var(--ink)"/>`;
+        if(o.need && !shown.has(o.step)){
+          shown.add(o.step);
+          g+=glyph('acc'+o.alt, x-1.0*SP-accW(o.alt), y, 400, 'var(--ink)');
+          track(y-1.4*SP); track(y+1.4*SP);
+        }
+      }
+      const xa=nx(slot,grp[0].j)+(up?NHW-0.5:-NHW+0.5), xb=nx(slot,grp[grp.length-1].j)+(up?NHW-0.5:-NHW+0.5);
+      /* 1つしかない拍は、桁の代わりに短い棒を出す。何も出さないと4分音符に見える */
+      const x1=Math.min(xa,xb), x2=(grp.length>1?Math.max(xa,xb):xa+(up?0.9*SP:-0.9*SP));
+      for(let bm=0;bm<nBeam;bm++){
+        const by = beamY + (up?1:-1)*bm*0.95*SP;
+        g+=`<rect x="${(Math.min(x1,x2)-0.6).toFixed(1)}" y="${(by-(up?0:0.5*SP)).toFixed(1)}" `
+          +`width="${(Math.abs(x2-x1)+1.2).toFixed(1)}" height="${(0.5*SP).toFixed(1)}" fill="var(--ink)"/>`;
+      }
+      if(S.subdiv===3 && grp.length>1){
+        const cx=(xa+xb)/2, ty=beamY+(up?-0.5*SP:1.6*SP);
+        g+=`<text x="${cx.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="middle" font-size="${(1.1*SP).toFixed(1)}" font-style="italic" fill="var(--ink)">3</text>`;
+        track(ty-1.1*SP); track(ty+0.4*SP);
+      }
+    }
+  });
+
+  /* オクターブ記号。かかっている範囲を破線で示し、端に折り返しを付ける */
+  if(plan.k!==0 && all.length){
+    const up = plan.k>0;
+    const x1=nx(0,0)-0.8*SP, x2=nx(1,perBar[1].length?perBar[1].length-1:bs-1)+0.8*SP;
+    const y = up ? yLo-1.1*SP : yHi+1.9*SP;
+    const lab=OTT_NAME[String(plan.k)], tw=(lab.length*0.62+0.4)*SP;
+    g+=`<text x="${x1.toFixed(1)}" y="${y.toFixed(1)}" font-size="${(1.15*SP).toFixed(1)}" font-style="italic" `
+      +`font-weight="600" fill="var(--ink)">${lab}</text>`;
+    const ly=y-0.35*SP;
+    g+=`<line x1="${(x1+tw).toFixed(1)}" y1="${ly.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${ly.toFixed(1)}" `
+      +`stroke="var(--ink)" stroke-width="1.2" stroke-dasharray="${(0.5*SP).toFixed(1)} ${(0.4*SP).toFixed(1)}"/>`;
+    g+=`<line x1="${x2.toFixed(1)}" y1="${ly.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${(ly+(up?0.8*SP:-0.8*SP)).toFixed(1)}" `
+      +`stroke="var(--ink)" stroke-width="1.2"/>`;
+    track(up ? y-1.15*SP : y+0.4*SP);
+  }
+
+  /* ---- ここで中身の高さが決まる。全体をずらして枠と目盛りを作る ---- */
+  const LBL=17, PAD=0.8*SP;
+  const OFF = LBL + PAD - yLo;                 /* 五線の下端を置く絶対位置 */
+  const paperTop=LBL, paperBot=OFF+yHi+PAD;
+  const rows = S.hands==='both' ? ['R','L'] : [S.hands];
+  const rowH=Math.max(46, 2.4*SP), laneTop=paperBot+26;
+  const laneBot=laneTop+rows.length*rowH;
+  const H=laneBot+6;
+  $('score').setAttribute('viewBox',`0 0 ${SCORE_W} ${H}`);
+
+  let s=`<rect x="0" y="${paperTop}" width="${SCORE_W}" height="${(paperBot-paperTop).toFixed(1)}" rx="10" fill="var(--paper)"/>`;
+  s+=`<g transform="translate(0,${OFF.toFixed(1)})">${g}</g>`;
   for(const b of bars){
     const on = playing && b===cur;
-    s+=`<text x="${(noteX0+span*(mod(b,2)*0.5+0.25)).toFixed(1)}" y="14" text-anchor="middle" font-size="11.5" `
+    s+=`<text x="${(noteX0+span*(mod(b,2)*0.5+0.25)).toFixed(1)}" y="12" text-anchor="middle" font-size="11.5" `
       +`fill="${on?'var(--accent)':'var(--dim2)'}" font-weight="${on?600:400}">`
       +`小節 ${b+1}${on?'　弾いているところ':''}</text>`;
   }
-
-  staves.forEach((hand,k)=>{
-    const yBot=topY(k)+4*SP;
-    /* 左手は右手と同じ音度をオクターブ下で弾く。五線の段も、その分だけ下げる
-       （1オクターブ＝7段） */
-    const shift = hand==='L' ? -7*Math.round((S.gap||0)/12) : 0;
-    const perBar = bars.map(b=>barNotes(b).map(o=>({...o, step:o.step+shift})));
-    const all = perBar.flat();
-    /* 音部記号は段に1つなので、見えている2小節をまとめて見て決める。
-       音の無い小節（曲の終わり）は、その段の素直な側にしておく */
-    const dflt = nSt===2 ? (k===0?34:22) : (hand==='L'?22:34);
-    const prefer = (nSt===2 ? k===0 : hand==='R') ? 't' : 'b';
-    const clef=pickClef(all.length?all:[{step:dflt}], prefer);
-    const bottomStep=CLEF_BOTTOM[clef];
-    const yOf = st => yBot - (st-bottomStep)*HS;
-    if(clef==='t') s+=glyph('gClef', X0+5, yOf(32), 200, 'var(--ink)');
-    else           s+=glyph('fClef', X0+5, yOf(24), 600, 'var(--ink)');
-    const ord = sig>=0?SHARP_STEPS:FLAT_STEPS;
-    for(let i=0;i<nAcc;i++){
-      const st = ord[i] - (clef==='t'?0:14);
-      s+=glyph('acc'+(sig>=0?1:-1), ksX+i*KSW, yOf(st), 400, 'var(--ink)');
-    }
-
-    const midStep=bottomStep+4, NHW=0.58*SP;
-    bars.forEach((b,bi)=>{
-      const slot=mod(b,2), ns=perBar[bi];
-      /* 符尾と連桁は拍ごとにまとめる。連桁は水平にして、group の端の位置にそろえる
-         （斜めにすると、オクターブ跳躍のある曲で途中の符尾が桁に届かない） */
-      const groups=[];
-      for(const o of ns){
-        const g=Math.floor(o.j/S.subdiv);
-        (groups[g]=groups[g]||[]).push(o);
-      }
-      const shown=new Set();     /* 臨時記号は小節の中で一度出したら繰り返さない */
-      for(const g of groups){
-        if(!g) continue;
-        const up = g.reduce((s2,o)=>s2+o.step,0)/g.length <= midStep;
-        const ys = g.map(o=>yOf(o.step));
-        const beamY = up ? Math.min(...ys)-3.0*SP : Math.max(...ys)+3.0*SP;
-        const nBeam = S.subdiv>=4 ? 2 : 1;
-        for(const o of g){
-          const x=nx(slot,o.j), y=yOf(o.step);
-          /* 加線 */
-          const inner=[bottomStep, bottomStep+8];
-          if(o.step>inner[1]||o.step<inner[0]){
-            const dir=o.step>inner[1]?2:-2, from=o.step>inner[1]?inner[1]+2:inner[0]-2;
-            for(let L=from; dir>0?L<=o.step:L>=o.step; L+=dir)
-              s+=`<rect x="${(x-0.92*SP).toFixed(1)}" y="${(yOf(L)-0.6).toFixed(1)}" width="${(1.84*SP).toFixed(1)}" height="1.2" fill="var(--ink)"/>`;
-          }
-          /* 符頭（黒玉）と符尾 */
-          s+=`<ellipse cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" rx="${(0.60*SP).toFixed(1)}" ry="${(0.42*SP).toFixed(1)}" `
-            +`transform="rotate(-21 ${x.toFixed(1)} ${y.toFixed(1)})" fill="var(--ink)"/>`;
-          const sx = up ? x+NHW-0.5 : x-NHW+0.5;
-          s+=`<rect x="${(sx-0.6).toFixed(1)}" y="${Math.min(y,beamY).toFixed(1)}" width="1.3" height="${Math.abs(beamY-y).toFixed(1)}" fill="var(--ink)"/>`;
-          if(o.need && !shown.has(o.step)){
-            shown.add(o.step);
-            s+=glyph('acc'+o.alt, x-1.0*SP-accW(o.alt), y, 400, 'var(--ink)');
-          }
-        }
-        const xa=nx(slot,g[0].j)+(up?NHW-0.5:-NHW+0.5), xb=nx(slot,g[g.length-1].j)+(up?NHW-0.5:-NHW+0.5);
-        /* 1つしかない拍は、桁の代わりに短い棒を出す。何も出さないと4分音符に見える */
-        const x1=Math.min(xa,xb), x2=(g.length>1?Math.max(xa,xb):xa+(up?0.9*SP:-0.9*SP));
-        for(let bm=0;bm<nBeam;bm++){
-          const by = beamY + (up?1:-1)*bm*0.95*SP;
-          s+=`<rect x="${(Math.min(x1,x2)-0.6).toFixed(1)}" y="${(by-(up?0:0.5*SP)).toFixed(1)}" `
-            +`width="${(Math.abs(x2-x1)+1.2).toFixed(1)}" height="${(0.5*SP).toFixed(1)}" fill="var(--ink)"/>`;
-        }
-        if(S.subdiv===3 && g.length>1){
-          const cx=(xa+xb)/2, ty=beamY+(up?-0.5*SP:1.6*SP);
-          s+=`<text x="${cx.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="middle" font-size="11" font-style="italic" fill="var(--ink)">3</text>`;
-        }
-      }
-    });
-  });
-  scoreGeom={nx, bars, laneTop, laneH, laneY0, H, paperTop, paperBot,
-             yTopAll:yT, yBotAll:yB, bs, slotW:span/total};
+  scoreGeom={nx, bars, bs, slotW, rows, rowH, laneTop, laneBot,
+             paperTop, paperBot, yTopStaff:OFF+yLo, yBotStaff:OFF+yHi, H};
   $('score').innerHTML = `<g id="scoreStatic">${s}</g><g id="scoreLive"></g>`;
 }
 
+/* ずれのレーン。手ごとに段を分け、ずれは横方向で見せる。
+   楽譜と同じ時間の目盛りをそのまま横軸に使うので、「あるべき位置の目盛り」から
+   右へ伸びていれば遅れ、左へ伸びていれば先走り、という読み方になる。
+   両手を1つの段に重ねると点が隠れ合うので、上に右手・下に左手で分ける。 */
 function drawScoreLive(){
   const g=scoreGeom;
   if(!g) return;
   const el=$('scoreLive');
   if(!el) return;
   let s='';
-  /* ずれのレーン。楽譜と同じ横位置に置くので、どの音でよれたかがそのまま分かる。
-     許容窓のちょうど上下を枠にしてある。枠に触っている点は「かろうじて正解と
-     認めた打鍵」で、枠の外に出るものは無い（外に出たら抜けか余分になる） */
   if(S.lane){
-    const LX=52, RX=SCORE_W-8;
-    const half=g.laneH/2-6, sc=half/S.winMs;
-    const yOfDev = d => g.laneY0 + clamp(d,-S.winMs,S.winMs)*sc;
-    s+=`<rect x="${LX}" y="${(g.laneY0-half).toFixed(1)}" width="${(RX-LX).toFixed(1)}" height="${(2*half).toFixed(1)}" `
-      +`rx="7" fill="var(--panel2)" stroke="var(--line)" stroke-width="1"/>`;
-    /* 1打点の1/4。音楽的に「わずかなずれ」と言える幅の目安 */
-    const q=stepMs()/4;
-    if(q<S.winMs) for(const v of [-q,q])
-      s+=`<line x1="${LX}" y1="${yOfDev(v).toFixed(1)}" x2="${RX}" y2="${yOfDev(v).toFixed(1)}" `
-        +`stroke="var(--line)" stroke-width="1" stroke-dasharray="4 4"/>`;
-    s+=`<line x1="${LX}" y1="${g.laneY0}" x2="${RX}" y2="${g.laneY0}" stroke="var(--dim2)" stroke-width="1.3"/>`;
-    for(const [v,lab] of [[-S.winMs,'早 −'+S.winMs],[0,'0'],[S.winMs,'遅 ＋'+S.winMs]])
-      s+=`<text x="${LX-6}" y="${yOfDev(v).toFixed(1)}" text-anchor="end" dominant-baseline="central" `
-        +`font-size="10.5" fill="var(--dim2)">${lab}</text>`;
-    s+=`<text x="${RX-4}" y="${(g.laneY0-half+11).toFixed(1)}" text-anchor="end" font-size="10.5" fill="var(--dim2)">`
-      +`ms　点線＝1打点の1/4</text>`;
+    const pxMs=g.slotW/stepMs();                    /* 1打点ぶんの幅＝1打点ぶんの時間 */
 
     const byGi=new Map();
     for(const h of hits){ if(h.gi==null) continue;
       if(!byGi.has(h.gi)) byGi.set(h.gi,{}); byGi.get(h.gi)[h.hand]=h; }
-    for(const b of g.bars){
-      const slot=mod(b,2);
-      for(let j=0;j<g.bs;j++){
-        const o=byGi.get(b*g.bs+j);
-        if(!o) continue;
-        const x=g.nx(slot,j);
-        if(o.R&&o.L&&o.R.dev!=null&&o.L.dev!=null)
-          s+=`<line x1="${x.toFixed(1)}" y1="${yOfDev(o.R.dev).toFixed(1)}" x2="${x.toFixed(1)}" y2="${yOfDev(o.L.dev).toFixed(1)}" stroke="var(--dim2)" stroke-width="1.2"/>`;
-        for(const hd of ['R','L']){
-          const h=o[hd]; if(!h) continue;
-          const col = hd==='R'?'var(--s1)':'var(--s2)';
+    g.rows.forEach((hd,ri)=>{
+      const y0=g.laneTop+ri*g.rowH, cy=y0+g.rowH/2;
+      const col = hd==='R'?'var(--s1)':'var(--s2)';
+      const bh=Math.min(20, g.rowH-16);
+      const xL=g.nx(0,0), xR=g.nx(1,g.bs-1);
+      s+=`<text x="${(xL-g.slotW*0.5-8).toFixed(1)}" y="${cy}" text-anchor="end" dominant-baseline="central" `
+        +`font-size="11.5" fill="${col}" font-weight="600">${hd==='R'?'右手':'左手'}</text>`;
+      s+=`<line x1="${(xL-g.slotW*0.5).toFixed(1)}" y1="${cy}" x2="${(xR+g.slotW*0.5).toFixed(1)}" y2="${cy}" `
+        +`stroke="var(--line)" stroke-width="1"/>`;
+      for(const b of g.bars){
+        const slot=mod(b,2);
+        for(let j=0;j<g.bs;j++){
+          const gi=b*g.bs+j;
+          if(gi>=totalSteps()) break;
+          const x=g.nx(slot,j);
+          /* あるべき位置の目盛り。目盛りの間隔がそのまま1打点ぶんの時間になる */
+          s+=`<line x1="${x.toFixed(1)}" y1="${(cy-bh/2).toFixed(1)}" x2="${x.toFixed(1)}" y2="${(cy+bh/2).toFixed(1)}" `
+            +`stroke="var(--dim2)" stroke-width="1.2"/>`;
+          const h=(byGi.get(gi)||{})[hd];
+          if(!h) continue;
           if(h.dev==null){
-            s+=`<path d="M${(x-4).toFixed(1)} ${g.laneY0-4} l8 8 M${(x+4).toFixed(1)} ${g.laneY0-4} l-8 8" `
-              +`stroke="${col}" stroke-width="1.5" fill="none" opacity="0.8"/>`;
+            s+=`<path d="M${(x-4.5).toFixed(1)} ${(cy-4.5).toFixed(1)} l9 9 M${(x+4.5).toFixed(1)} ${(cy-4.5).toFixed(1)} l-9 9" `
+              +`stroke="${col}" stroke-width="1.6" fill="none" opacity="0.85"/>`;
           }else{
-            s+=`<circle cx="${x.toFixed(1)}" cy="${yOfDev(h.dev).toFixed(1)}" r="4" fill="${col}"/>`;
+            const hx=x+clamp(h.dev,-S.winMs,S.winMs)*pxMs;
+            s+=`<line x1="${x.toFixed(1)}" y1="${cy}" x2="${hx.toFixed(1)}" y2="${cy}" stroke="${col}" stroke-width="2.4"/>`;
+            s+=`<circle cx="${hx.toFixed(1)}" cy="${cy}" r="4.5" fill="${col}"/>`;
           }
         }
       }
-    }
+    });
+    /* 目盛りの間隔がそのまま1打点ぶんの時間なので、それを書いておけば大きさが読める。
+       許容窓は、隣の打点と重なるほど広いことが多い。帯で描くと重なって潰れるので出さない
+       （窓の外に出た打鍵はそもそも「抜け」になり、この段には現れない） */
+    s+=`<text x="${(SCORE_W-6)}" y="${(g.laneTop-9)}" text-anchor="end" font-size="10.5" fill="var(--dim2)">`
+      +(SCORE_W<780 ? `目盛り間隔＝1打点 ${Math.round(stepMs())}ms　右＝遅れ`
+                   : `横＝時間　目盛りの間隔＝1打点 ${Math.round(stepMs())}ms　右へ伸びる＝遅れ、左＝先走り`)+`</text>`;
   }
-  /* いま弾くところ */
+  /* いま弾くところ。楽譜からレーンまで通して出す */
   if(playing && playGi>=0){
     const b=Math.floor(playGi/g.bs);
     if(b>=g.bars[0] && b<=g.bars[1]){
       const slot=mod(b,2), j=mod(playGi,g.bs), x=g.nx(slot,j), w=g.slotW;
-      s+=`<rect x="${(x-w/2).toFixed(1)}" y="${g.yTopAll-14}" width="${Math.max(8,w).toFixed(1)}" `
-        +`height="${(g.yBotAll-g.yTopAll+28).toFixed(1)}" rx="5" fill="var(--accent)" opacity="0.16"/>`;
+      const top=g.yTopStaff-4, bot=(S.lane?g.laneBot-4:g.yBotStaff+4);
+      s+=`<rect x="${(x-w/2).toFixed(1)}" y="${top.toFixed(1)}" width="${Math.max(8,w).toFixed(1)}" `
+        +`height="${(bot-top).toFixed(1)}" rx="5" fill="var(--accent)" opacity="0.14"/>`;
     }
   }
   el.innerHTML=s;
@@ -1712,7 +1755,7 @@ function renderControls(){
     `${$('pattern').selectedOptions[0].textContent}／${SEQ.key.name} ${MODES[S.mode].n}／`
     + `${S.hands==='both'?'両手':S.hands==='R'?'右手':'左手'}／許容窓 ${S.winMs}ms`;
 
-  scoreBar=-1;               /* 課題が変わったので楽譜は組み直す */
+  scoreBar=-1; lastPlan=null; needMeasure=true;   /* 課題が変わったので楽譜は組み直す */
   drawScore(); needKb=true; drawKeyboard();
 }
 function calibrate(){
@@ -1773,7 +1816,7 @@ function bind(){
     b.onclick=()=>{ S.hist=b.dataset.v; renderControls(); drawHist(); saveSoon(); });
   let rt=null;
   addEventListener('resize',()=>{ clearTimeout(rt);
-    rt=setTimeout(()=>{ scoreBar=-1; drawScore(); drawAll(); },120); });
+    rt=setTimeout(()=>{ needMeasure=true; scoreBar=-1; drawScore(); drawAll(); },120); });
 }
 
 load(); loadColors(); fillSelects(); bind(); initTips();
