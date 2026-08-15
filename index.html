@@ -84,7 +84,8 @@
   /* 横スクロールは作らない。譜面は場所の実寸で組み直し、鍵盤は素直に縮む
      （iPad mini の縦 744px でも、そのまま1画面に収まる） */
   #score{display:block;width:100%;height:auto}
-  #kb{display:block;width:100%;height:auto;margin-top:2px}
+  /* ずれの窓とベロシティの段は別の目盛りなので、はっきり区切る */
+  #kb{display:block;width:100%;height:auto;margin-top:10px;padding-top:6px;border-top:1px solid var(--line)}
 
   /* ---- 成績のタイル ---- */
   .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:8px;margin-bottom:12px}
@@ -850,7 +851,10 @@ function uiLoop(){
    取り出したもの。フォント側の座標は上向き、五線の1間隔が200単位、五線上の位置の
    基準は y=400。ただしト音記号は G4 の線（y=200）、ヘ音記号は F3 の線（y=600）。
    ======================================================================= */
-const SP=10, HS=SP/2, GK=SP/200;
+/* 五線の間隔。横に入るぶんだけ大きくするので、描くたびに引き直す。
+   字形の倍率（GK）と1段の高さ（HS）はこれに従う */
+let SP=10, HS=5, GK=0.05;
+const setSP = v => { SP=v; HS=v/2; GK=v/200; };
 const GLYPH={
   'gClef':'M301 532C299 542 301 542 306 547C392 633 458 724 458 852C458 922 438 990 406 1038C394 1056 373 1078 364 1078C353 1078 328 1058 312 1040C253 974 234 874 234 791C234 745 239 693 245 660C246 650 247 649 238 641C123 546 0 431 0 270C0 130 95 -2 291 -2C310 -2 330 0 346 3C355 5 357 6 358 -4C368 -58 380 -127 380 -165C380 -283 300 -298 253 -298C210 -298 189 -285 189 -274C189 -269 196 -266 214 -261C239 -254 268 -232 268 -186C268 -142 240 -104 191 -104C138 -104 106 -146 106 -196C106 -248 137 -326 258 -326C311 -326 415 -302 415 -166C415 -121 401 -45 392 5C390 14 391 14 402 18C483 50 537 118 537 209C537 311 462 402 344 402C323 402 323 402 321 416ZM376 954C402 954 424 933 424 889C424 799 348 729 285 673C279 668 276 669 274 679C271 700 270 727 270 753C270 878 327 954 376 954ZM289 410C291 394 291 395 277 390C206 366 161 303 161 235C161 163 198 112 253 94C259 91 269 89 274 89C281 89 284 93 284 98C284 103 278 106 272 108C238 122 214 157 214 194C214 239 246 274 294 287C307 290 309 290 310 281L350 42C352 34 351 34 339 31C326 29 310 27 294 27C154 27 64 105 64 216C64 351 163 438 261 515C269 522 270 521 272 512ZM344 282C342 292 343 294 353 294C418 288 471 234 471 163C471 113 441 72 396 50C386 45 385 45 383 54Z',
   'fClef':'M202 810C62 810 0 708 0 631C0 567 34 512 98 512C149 512 183 547 183 597C183 648 146 680 106 680C85 680 77 674 66 674C56 674 54 681 54 689C54 721 102 779 183 779C268 779 305 696 305 570C305 346 194 223 8 116C1 112 -4 108 -4 102C-4 97 -1 92 6 92C10 92 15 94 20 96C217 193 425 334 425 578C425 717 340 810 202 810ZM503 744C478 744 459 725 459 700C459 675 478 656 503 656C528 656 547 675 547 700C547 725 528 744 503 744ZM504 543C479 543 461 525 461 500C461 475 479 457 504 457C529 457 547 475 547 500C547 525 529 543 504 543Z',
@@ -921,21 +925,31 @@ function drawScore(){
 function drawScoreStatic(cur){
   const staves = S.hands==='both' ? ['R','L'] : [S.hands];
   const nSt=staves.length;
-  const topY = k => 60 + k*95;                       /* 上から1本目の線 */
+  const sig=SEQ.key.sig, nAcc=Math.abs(sig);
+  const bs=barSteps(), total=2*bs;
+
+  /* 五線の大きさは、横に入るぶんだけ大きくする。符頭の幅は五線の間隔に比例するので、
+     大きくしすぎると音符どうしがぶつかる。「打点の間隔が符頭1.5個ぶんは空く」を
+     満たす最大の大きさを求め、上限で頭を打つ。調号が多いほど左が詰まるので、
+     そのぶんも式に入れている */
+  const denom = 6 + 1.1*nAcc + 3.6*bs;
+  setSP(clamp(Math.floor((SCORE_W-34)/denom), 9, 20));
+
+  const LED=3.5*SP, GAPST=5.5*SP;                    /* 加線の余白と、段どうしの間 */
+  const paperTop=20;
+  const topY = k => paperTop + LED + k*(4*SP+GAPST); /* 上から1本目の線 */
   const botY = k => topY(k)+4*SP;
-  const paperTop=20, paperBot=botY(nSt-1)+40;
-  const laneTop=paperBot+10, laneH=40, laneY0=laneTop+laneH/2;
-  const H=laneTop+laneH+6;
+  const paperBot=botY(nSt-1)+LED;
+  const laneTop=paperBot+12, laneH=120, laneY0=laneTop+laneH/2;
+  const H=laneTop+laneH+8;
   $('score').setAttribute('viewBox',`0 0 ${SCORE_W} ${H}`);
 
-  const sig=SEQ.key.sig, nAcc=Math.abs(sig);
   const KSW=(sig>=0?1.10:0.95)*SP;
   /* 音部記号と調号は、2小節ぶんの段の左端に1回だけ置く（本来の楽譜と同じ）。
      小節ごとに置くと、そのぶん右の小節の音符が右へ押されて、小節をまたぐところ
      だけ音符の間隔が空いてしまう。1回にすれば、2小節を通して等間隔に並ぶ */
-  const X0=18, ksX=X0+42, ksEnd=ksX+nAcc*KSW;
-  const bs=barSteps(), total=2*bs;
-  const noteX0=ksEnd+16, noteX1=SCORE_W-18, span=noteX1-noteX0;
+  const X0=1.8*SP, ksX=X0+4.2*SP, ksEnd=ksX+nAcc*KSW;
+  const noteX0=ksEnd+1.6*SP, noteX1=SCORE_W-1.8*SP, span=noteX1-noteX0;
   const nx=(slot,j)=>noteX0 + span*((slot*bs+j)+0.5)/total;
   const midX=noteX0+span/2;                      /* 2小節の境の小節線 */
 
@@ -946,10 +960,10 @@ function drawScoreStatic(cur){
   s+=`<rect x="0" y="${paperTop}" width="${SCORE_W}" height="${paperBot-paperTop}" rx="10" fill="var(--paper)"/>`;
 
   /* 五線・小節線・中括弧。2小節でひと続きの段になる */
-  const yT=topY(0), yB=botY(nSt-1);
+  const yT=topY(0), yB=botY(nSt-1), xEnd=SCORE_W-1.0*SP;
   for(let k=0;k<nSt;k++) for(let i=0;i<5;i++)
-    s+=`<rect x="${X0}" y="${(topY(k)+i*SP-0.55).toFixed(1)}" width="${(SCORE_W-10-X0).toFixed(1)}" height="1.1" fill="var(--ink)" opacity="0.85"/>`;
-  for(const bx of [X0-0.7, midX-0.7, SCORE_W-11])
+    s+=`<rect x="${X0.toFixed(1)}" y="${(topY(k)+i*SP-0.55).toFixed(1)}" width="${(xEnd-X0).toFixed(1)}" height="1.1" fill="var(--ink)" opacity="0.85"/>`;
+  for(const bx of [X0-0.7, midX-0.7, xEnd-1.4])
     s+=`<rect x="${bx.toFixed(1)}" y="${yT}" width="1.4" height="${yB-yT}" fill="var(--ink)"/>`;
   if(nSt===2){
     const bsz=(yB-yT)/798;
@@ -1048,12 +1062,27 @@ function drawScoreLive(){
   const el=$('scoreLive');
   if(!el) return;
   let s='';
-  /* ずれのレーン。楽譜と同じ横位置に置くので、どの音でよれたかがそのまま分かる */
+  /* ずれのレーン。楽譜と同じ横位置に置くので、どの音でよれたかがそのまま分かる。
+     許容窓のちょうど上下を枠にしてある。枠に触っている点は「かろうじて正解と
+     認めた打鍵」で、枠の外に出るものは無い（外に出たら抜けか余分になる） */
   if(S.lane){
-    const sc=(g.laneH/2-5)/S.winMs;
-    s+=`<line x1="26" y1="${g.laneY0}" x2="${SCORE_W-8}" y2="${g.laneY0}" stroke="var(--line)" stroke-width="1"/>`;
-    s+=`<text x="22" y="${g.laneTop+9}" text-anchor="end" font-size="9.5" fill="var(--dim2)">早</text>`;
-    s+=`<text x="22" y="${g.laneTop+g.laneH-2}" text-anchor="end" font-size="9.5" fill="var(--dim2)">遅</text>`;
+    const LX=52, RX=SCORE_W-8;
+    const half=g.laneH/2-6, sc=half/S.winMs;
+    const yOfDev = d => g.laneY0 + clamp(d,-S.winMs,S.winMs)*sc;
+    s+=`<rect x="${LX}" y="${(g.laneY0-half).toFixed(1)}" width="${(RX-LX).toFixed(1)}" height="${(2*half).toFixed(1)}" `
+      +`rx="7" fill="var(--panel2)" stroke="var(--line)" stroke-width="1"/>`;
+    /* 1打点の1/4。音楽的に「わずかなずれ」と言える幅の目安 */
+    const q=stepMs()/4;
+    if(q<S.winMs) for(const v of [-q,q])
+      s+=`<line x1="${LX}" y1="${yOfDev(v).toFixed(1)}" x2="${RX}" y2="${yOfDev(v).toFixed(1)}" `
+        +`stroke="var(--line)" stroke-width="1" stroke-dasharray="4 4"/>`;
+    s+=`<line x1="${LX}" y1="${g.laneY0}" x2="${RX}" y2="${g.laneY0}" stroke="var(--dim2)" stroke-width="1.3"/>`;
+    for(const [v,lab] of [[-S.winMs,'早 −'+S.winMs],[0,'0'],[S.winMs,'遅 ＋'+S.winMs]])
+      s+=`<text x="${LX-6}" y="${yOfDev(v).toFixed(1)}" text-anchor="end" dominant-baseline="central" `
+        +`font-size="10.5" fill="var(--dim2)">${lab}</text>`;
+    s+=`<text x="${RX-4}" y="${(g.laneY0-half+11).toFixed(1)}" text-anchor="end" font-size="10.5" fill="var(--dim2)">`
+      +`ms　点線＝1打点の1/4</text>`;
+
     const byGi=new Map();
     for(const h of hits){ if(h.gi==null) continue;
       if(!byGi.has(h.gi)) byGi.set(h.gi,{}); byGi.get(h.gi)[h.hand]=h; }
@@ -1063,16 +1092,16 @@ function drawScoreLive(){
         const o=byGi.get(b*g.bs+j);
         if(!o) continue;
         const x=g.nx(slot,j);
-        const yOf = h => g.laneY0 + clamp(h.dev,-S.winMs,S.winMs)*sc;
         if(o.R&&o.L&&o.R.dev!=null&&o.L.dev!=null)
-          s+=`<line x1="${x.toFixed(1)}" y1="${yOf(o.R).toFixed(1)}" x2="${x.toFixed(1)}" y2="${yOf(o.L).toFixed(1)}" stroke="var(--dim2)" stroke-width="1"/>`;
+          s+=`<line x1="${x.toFixed(1)}" y1="${yOfDev(o.R.dev).toFixed(1)}" x2="${x.toFixed(1)}" y2="${yOfDev(o.L.dev).toFixed(1)}" stroke="var(--dim2)" stroke-width="1.2"/>`;
         for(const hd of ['R','L']){
           const h=o[hd]; if(!h) continue;
+          const col = hd==='R'?'var(--s1)':'var(--s2)';
           if(h.dev==null){
-            s+=`<path d="M${(x-3).toFixed(1)} ${g.laneY0-3} l6 6 M${(x+3).toFixed(1)} ${g.laneY0-3} l-6 6" `
-              +`stroke="${hd==='R'?'var(--s1)':'var(--s2)'}" stroke-width="1.3" fill="none" opacity="0.8"/>`;
+            s+=`<path d="M${(x-4).toFixed(1)} ${g.laneY0-4} l8 8 M${(x+4).toFixed(1)} ${g.laneY0-4} l-8 8" `
+              +`stroke="${col}" stroke-width="1.5" fill="none" opacity="0.8"/>`;
           }else{
-            s+=`<circle cx="${x.toFixed(1)}" cy="${yOf(h).toFixed(1)}" r="3" fill="${hd==='R'?'var(--s1)':'var(--s2)'}"/>`;
+            s+=`<circle cx="${x.toFixed(1)}" cy="${yOfDev(h.dev).toFixed(1)}" r="4" fill="${col}"/>`;
           }
         }
       }
