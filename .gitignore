@@ -1,0 +1,6 @@
+.DS_Store
+.claude/settings.local.json
+
+# docs/ は無視しない。README が参照しているスクリーンショットが入っている
+# （姉妹プロジェクトの docs/ は README から参照していないサムネイルなので、
+#   あちらでは無視している）
