@@ -1341,7 +1341,7 @@ function drawScoreLive(){
   /* 譜面の左は、音部記号と調号のぶんだけレーンが右に寄って空いている。
      演奏中に触る2つの切り替えをそこへ置く（上の設定まで戻らなくて済む） */
   const bw=g.btnW, bh=g.rowH-14;
-  [['lane','ずれを重ねる',S.lane],['marks','調の音に印',S.marks]].forEach(([k,lab,on],i)=>{
+  [['lane','判定を表示',S.lane],['marks','調の音に印',S.marks]].forEach(([k,lab,on],i)=>{
     const by=g.laneTop+i*g.rowH+7;
     s+=`<g data-sbtn="${k}" style="cursor:pointer">`
       +`<rect x="${g.btnX0}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="8" `
