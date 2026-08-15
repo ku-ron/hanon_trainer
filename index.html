@@ -289,7 +289,7 @@
       <label class="chk"><input type="checkbox" id="loopChk">くり返す</label>
     </div>
     <svg id="score" viewBox="0 0 1000 292" preserveAspectRatio="xMidYMid meet"></svg>
-    <svg id="kb" viewBox="0 -134 1196 290" preserveAspectRatio="xMidYMid meet"></svg>
+    <svg id="kb" viewBox="0 -124 1196 280" preserveAspectRatio="xMidYMid meet"></svg>
     <p class="hint"><b>楽譜は2小節ぶんが出て、位置は動きません。</b>いま弾いている小節の隣にはつぎの小節が出ていて、そこへ進むと、弾き終わった側だけがその先の小節に入れ替わります。<b>ためし演奏</b>は、電子ピアノが手元になくても動きを見るためのものです（わざと少しよれた演奏を作って、実機と同じ判定経路に流します）。</p>
   </div>
 
@@ -1269,7 +1269,7 @@ function drawScoreStatic(cur){
      下の余裕は無いので、増えるのは全体で1.5倍ほどに収める */
   const twoTier=gateActive();
   const rowH=twoTier ? Math.max(76, 4.2*SP) : Math.max(52, 2.8*SP);
-  const laneTop=paperBot+26;
+  const laneTop=paperBot+12;
   const laneBot=laneTop+2*rowH;
   const H=laneBot+6;
   $('score').setAttribute('viewBox',`0 0 ${SCORE_W} ${H}`);
@@ -1377,8 +1377,12 @@ function drawScoreLive(){
           if(gi>=totalSteps()) break;
           const x=g.nx(slot,j);
           const acc=accentOf(gi), art=articOf(gi);
-          back+=`<line x1="${x.toFixed(1)}" y1="${(cy-9).toFixed(1)}" x2="${x.toFixed(1)}" y2="${(cy+9).toFixed(1)}" `
-            +`stroke="var(--dim2)" stroke-width="1" opacity="0.5"/>`;
+          /* あるべき打鍵位置の縦線。下段（音の長さ）の始まりも同じ位置なので、
+             1本を通して引く。拍の頭は太く長くして、拍が目で拾えるようにする */
+          const head=mod(gi,S.subdiv)===0;
+          const ty0=cy-(head?13:10), ty1=two ? dy+(head?11:8) : cy+(head?13:10);
+          back+=`<line x1="${x.toFixed(1)}" y1="${ty0.toFixed(1)}" x2="${x.toFixed(1)}" y2="${ty1.toFixed(1)}" `
+            +`stroke="${head?'var(--dim)':'var(--dim2)'}" stroke-width="${head?1.5:1}" opacity="${head?1:0.7}"/>`;
           /* --- 上段の的。強さの指定は「あるべき丸の大きさ」。
                  緑＝この大きさ以上、橙＝この大きさ以下、灰＝指定なし --- */
           const gr=(acc==null ? 9 : TH(acc ? S.t1 : S.t2))/2;
@@ -1419,11 +1423,6 @@ function drawScoreLive(){
       }
       s+=back+act+front;
     });
-    s+=`<text x="${(SCORE_W-6)}" y="${(g.laneTop-9)}" text-anchor="end" font-size="10.5" fill="var(--dim2)">`
-      +(SCORE_W<820
-        ? `目盛り＝1打点 ${Math.round(stepMs())}ms`
-        : `横＝時間　目盛りの間隔＝1打点 ${Math.round(stepMs())}ms　薄い印＝指定`
-          + (gateActive() ? `　上＝打鍵と強さ／下＝音の長さ　✕＝外れ` : `　✕＝強さが外れ`))+`</text>`;
   }
   /* いま弾くところ。楽譜からレーンまで通して出す */
   if(playing && playGi>=0){
@@ -1493,10 +1492,6 @@ function drawKeyboard(){
       lastLabelX=cx;
     }
   }
-  s+=`<text x="1193" y="${(VEL_TOP-7).toFixed(1)}" text-anchor="end" font-size="11" fill="var(--dim)">`
-    +`ベロシティ${vmax?`　いま最大 <tspan fill="var(--fg)" font-weight="600">${vmax}</tspan>`:''}`
-    +`${pedal?'　<tspan fill="var(--ped)">ペダル</tspan>':''}</text>`;
-
   /* ---- 鍵盤 ---- */
   for(const n of WHITES)
     s+=`<rect x="${whiteX(n)+0.6}" y="${KTOP}" width="${KW-1.2}" height="${KH}" rx="3" fill="var(--kw)" stroke="var(--kedge)" stroke-width="0.8"/>`;
@@ -2015,8 +2010,10 @@ function renderControls(){
   document.querySelectorAll('#countSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.v===S.countIn));
   $('pattern').value=S.pattern; $('key').value=S.keyPc; $('mode').value=S.mode;
   $('startOct').value=S.startOct; $('hands').value=S.hands; $('gap').value=S.gap;
-  $('win').value=S.winMs; $('t1').value=S.t1; $('t2').value=S.t2;
-  $('cal').value=Math.round(S.calMs);
+  /* いま入力中の欄は書き換えない（打っている最中に値が入れ替わってしまう） */
+  const setNum=(id,v)=>{ const el=$(id); if(document.activeElement!==el) el.value=v; };
+  setNum('win',S.winMs); setNum('t1',S.t1); setNum('t2',S.t2);
+  setNum('cal',Math.round(S.calMs));
   $('clickVol').value=S.clickVel; $('clickVolVal').textContent=S.clickVel;
   $('clickDryBtn').classList.toggle('on',S.clickDry);
   document.querySelectorAll('#clickOutSeg button').forEach(b=>b.classList.toggle('on',b.dataset.v===S.clickOut));
@@ -2025,7 +2022,7 @@ function renderControls(){
   const isHanon=S.pattern.startsWith('hanon');
   $('lenLabel').textContent = isHanon ? '小節の数' : 'オクターブ数';
   $('len').max = isHanon ? 24 : 5;
-  $('len').value = isHanon ? S.len : S.oct;
+  if(document.activeElement!==$('len')) $('len').value = isHanon ? S.len : S.oct;
 
   buildSeq();
   renderAccent();
@@ -2088,7 +2085,9 @@ function renderAccent(){
   $('g1Fld').style.display = gateHas(1) ? '' : 'none';
   $('g2Fld').style.display = gateHas(-1)? '' : 'none';
   $('accHint').textContent = on ? `1小節（${n}打点）ぶんをくり返します` : '';
-  $('g1').value=S.g1; $('g2').value=S.g2;
+  { const f=id=>document.activeElement!==$(id);
+    if(f('g1')) $('g1').value=S.g1;
+    if(f('g2')) $('g2').value=S.g2; }
   renderGrid('accGrid',  ACC_ROWS,  S.accMask);
   renderGrid('gateGrid', GATE_ROWS, S.gateMask);
 }
@@ -2129,11 +2128,24 @@ function bind(){
      0 は正しい入力なので ||既定値 では受け取れない（ずれのゼロ点で効く） */
   /* 課題を替えたら楽譜の位置も先頭へ戻す。前の回の位置のままだと、
      新しい曲の終わりのあたり（多くは空の小節）を出したまま止まる */
-  const num=(id,key,lo,hi,halt)=>{ $(id).oninput=e=>{
-    const v=parseFloat(e.target.value);
-    if(isNaN(v)) return;
-    if(halt){ if(playing) stop(); playGi=-1; }
-    S[key]=clamp(v,lo,hi); saveSoon(); renderControls(); drawAll(); }; };
+  /* 打っている途中で丸めて書き戻すと、1文字打つたびに値が入れ替わって入力できない
+     （iPadだと特にひどい）。範囲に入るまでは何もせず、確定（離れる・改行）のときだけ
+     丸める。renderControls も、いま触っている欄には書き戻さない */
+  const num=(id,key,lo,hi,halt)=>{
+    const el=$(id);
+    const commit=(raw,final)=>{
+      const v=parseFloat(raw);
+      if(isNaN(v)){ if(final) el.value=S[key]; return; }
+      if(!final && (v<lo || v>hi)) return;       /* 途中なので待つ */
+      if(halt){ if(playing) stop(); playGi=-1; }
+      S[key]=clamp(v,lo,hi);
+      saveSoon(); renderControls(); drawAll();
+      if(final) el.value=S[key];
+    };
+    el.oninput =e=>commit(e.target.value,false);
+    el.onchange=e=>commit(e.target.value,true);
+    el.onblur  =e=>commit(e.target.value,true);
+  };
   /* テンポは数字を打つのが難しい（特にiPad）。スライダーと±で決められるようにする */
   const setBpm=v=>{ if(playing) stop(); playGi=-1;
     S.bpm=clamp(Math.round(v),30,208); saveSoon(); renderControls(); drawAll(); };
@@ -2146,14 +2158,23 @@ function bind(){
   /* 長さの意味は曲の種類で変わる（ハノンは小節の数、音階類はオクターブ数）。
      同じ入力欄を使い回すが、値は別々に覚えておく。1つにすると、
      ハノンの14がスケールへ持ち込まれて頭打ちになる */
-  $('len').oninput=e=>{
-    const v=parseFloat(e.target.value);
-    if(isNaN(v)) return;
-    if(playing) stop();
-    playGi=-1;
-    if(S.pattern.startsWith('hanon')) S.len=clamp(v,1,24); else S.oct=clamp(v,1,5);
-    saveSoon(); renderControls(); drawAll();
-  };
+  {
+    const el=$('len');
+    const commit=(raw,final)=>{
+      const isH=S.pattern.startsWith('hanon'), key=isH?'len':'oct', hi=isH?24:5;
+      const v=parseFloat(raw);
+      if(isNaN(v)){ if(final) el.value=S[key]; return; }
+      if(!final && (v<1 || v>hi)) return;
+      if(playing) stop();
+      playGi=-1;
+      S[key]=clamp(v,1,hi);
+      saveSoon(); renderControls(); drawAll();
+      if(final) el.value=S[key];
+    };
+    el.oninput =e=>commit(e.target.value,false);
+    el.onchange=e=>commit(e.target.value,true);
+    el.onblur  =e=>commit(e.target.value,true);
+  }
   num('win','winMs',20,400); num('t1','t1',1,127); num('t2','t2',1,127);
   num('g1','g1',10,200); num('g2','g2',5,150);
   num('cal','calMs',-300,300);
