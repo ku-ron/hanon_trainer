@@ -271,7 +271,6 @@
         <button data-v="2">2拍</button><button data-v="4">4拍</button>
       </span></label>
       <label class="chk"><input type="checkbox" id="loopChk">くり返す</label>
-      <span class="stat" id="runState" style="margin-left:auto;min-width:12.5em;text-align:right"></span>
     </div>
     <svg id="score" viewBox="0 0 1000 292" preserveAspectRatio="xMidYMid meet"></svg>
     <svg id="kb" viewBox="0 -134 1196 290" preserveAspectRatio="xMidYMid meet"></svg>
@@ -672,6 +671,39 @@ const outLat   = () => { const l=actx&&actx.outputLatency;
                          return (typeof l==='number'&&isFinite(l)&&l>0&&l<3)?l:0; };
 const clickLatMs = () => S.clickOut==='audio' ? outLat()*1000 : 0;
 
+/* 目でも拍が取れるように振り子を振る（コード弾き練習アプリと同じ作り）。
+   角度はCSSアニメーションではなく音の時計から毎フレーム引き直す。譜面は拍以外の
+   理由でも組み直されるので、アニメーションだと描き直しのたびに頭へ戻って跳ねる */
+const METRO_A=27;
+const metroPulse=p=>Math.max(0,1-Math.max(0,p)*3.5);
+const metroAngle=(p,dir,first)=>{
+  const q=clamp(p,0,1);
+  return first ? dir*METRO_A*Math.sin(Math.PI*q/2) : -dir*METRO_A*Math.cos(Math.PI*q);
+};
+let metroQ=[], metroBeatT=0, metroDir=1, metroStarted=false, metroBeatN=0,
+    metroBeatIn=-1, metroCount=0, metroPivot=null;
+const beatsPerBar = () => Math.max(1, Math.round(barSteps()/S.subdiv));
+const clickLat = () => S.clickOut==='audio' ? outLat() : 0;
+function metroTick(){
+  const g=$('metroArm');
+  if(!g||!metroPivot) return;
+  let a=0, e=0;
+  if(playing && actx && metroStarted){
+    const spb=60/S.bpm;
+    const p=(actx.currentTime-clickLat()-metroBeatT)/spb;
+    a=metroAngle(p,metroDir,metroBeatN<=1);
+    e=metroPulse(p);
+  }
+  g.setAttribute('transform',`rotate(${a.toFixed(2)} ${metroPivot.x.toFixed(1)} ${metroPivot.y.toFixed(1)})`);
+  const nd=$('metroNow');
+  if(nd) nd.setAttribute('r',(+nd.dataset.r*(1+0.45*e)).toFixed(2));
+  const rg=$('metroPulse');
+  if(rg){
+    rg.setAttribute('r',(+rg.dataset.r*(1+1.9*(1-e))).toFixed(2));
+    rg.setAttribute('opacity',(e*0.8).toFixed(3));
+  }
+}
+
 let beatPerf=[];       /* 拍番号 → その拍が鳴る時刻（performance.now 系, ms） */
 let pending=[];        /* まだ窓が閉じていない期待音 */
 let hits=[];           /* 記録。1打鍵＝1件。抜けも1件として入る */
@@ -727,6 +759,8 @@ function schedule(){
   }
   while(nextTime < actx.currentTime + LOOKAHEAD){
     const beat = gbeat;
+    metroQ.push({t:nextTime, beat, count: beat<0 ? -beat : 0,
+                 bi: beat<0 ? -1 : mod(beat, beatsPerBar())});
     if(beat<0){
       click(nextTime, beat===-S.countIn?2:0);
     }else{
@@ -750,6 +784,7 @@ function play(){
   buildSeq();
   const gen=++playGen;
   playing=true; gbeat=-S.countIn; beatPerf=[]; pending=[]; lastGi=-1; playGi=-1;
+  metroQ=[]; metroStarted=false; metroBeatN=0; metroBeatIn=-1; metroCount=0;
   /* 記録は毎回まっさらにする。歩の番号は0から振り直されるので、前の回を
      残すと横軸の同じ位置に別の回の点が重なってしまう */
   hits=[]; held.clear(); susNotes.clear(); velMap.clear(); soundingMap.clear();
@@ -788,11 +823,11 @@ function stop(){
   clearInterval(schedId); schedId=null;
   clearTimeout(stopTimer); stopTimer=null;
   clearClickTimers(); simClear();
+  metroQ=[]; metroStarted=false; metroBeatIn=-1; metroCount=0;
   /* 時刻が過ぎたものだけ「抜け」として閉じる。まだ来ていない拍まで抜け扱いにすると、
      途中で止めただけで成績が崩れる */
   sweep(performance.now()); pending=[];
   $('playBtn').textContent='開始'; $('playBtn').classList.add('primary');
-  $('runState').textContent='';
   scoreBar=-1;      /* 「弾いているところ」の印を消すために組み直す */
   drawScore(); drawKeyboard(); drawAll();
 }
@@ -902,14 +937,23 @@ function uiLoop(){
   const now=performance.now();
   sweep(now);
   advancePlayhead(now);
+  /* 振り子の拍。音の時計で「鳴った」ものだけを取り込む */
+  if(actx){
+    const lat=clickLat();
+    while(metroQ.length && metroQ[0].t+lat <= actx.currentTime){
+      const e=metroQ.shift();
+      metroBeatT=e.t; metroDir=mod(e.beat,2)?-1:1; metroStarted=true; metroBeatN++;
+      metroBeatIn=e.bi; metroCount=e.count;
+      needScore=true;
+    }
+  }
   if(needKb){ drawKeyboard(); needKb=false; }
   drawScore();
+  metroTick();
   if(dirty && now-lastDraw>140){
     lastDraw=now; dirty=false;
-    $('runState').textContent = gbeat<0 ? `カウントイン ${-gbeat}`
-      : `${playGi+1} 打点め　弾いた ${played().length}`;
     drawAll();
-  }else if(gbeat<0) $('runState').textContent=`カウントイン ${-gbeat}`;
+  }
   requestAnimationFrame(uiLoop);
 }
 
@@ -1191,7 +1235,7 @@ function drawScoreStatic(cur){
     s+=`<rect x="${(bx-2).toFixed(1)}" y="${(paperTop+3).toFixed(1)}" width="${(bw+4).toFixed(1)}" `
       +`height="${(paperBot-paperTop-6).toFixed(1)}" rx="8" fill="none" stroke="var(--accent)" stroke-width="2.6"/>`;
   }
-  scoreGeom={nx, bars, bs, slotW, rows, rowH, laneTop, laneBot, btnX0:8, btnX1:noteX0-42,
+  scoreGeom={nx, bars, bs, slotW, rows, rowH, laneTop, laneBot, btnX0:8, btnW:96, metroX0:112, metroX1:noteX0-40,
              paperTop, paperBot, yTopStaff:OFF+scoreFixed.lo, yBotStaff:OFF+scoreFixed.hi, H};
   $('score').innerHTML = `<g id="scoreStatic">${s}</g><g id="scoreLive"></g>`;
 }
@@ -1206,9 +1250,10 @@ function drawScoreLive(){
   const el=$('scoreLive');
   if(!el) return;
   let s='';
+  const beatsBar=beatsPerBar();
   /* 譜面の左は、音部記号と調号のぶんだけレーンが右に寄って空いている。
      演奏中に触る2つの切り替えをそこへ置く（上の設定まで戻らなくて済む） */
-  const bw=Math.max(76, g.btnX1-g.btnX0), bh=g.rowH-14;
+  const bw=g.btnW, bh=g.rowH-14;
   [['lane','ずれを重ねる',S.lane],['marks','調の音に印',S.marks]].forEach(([k,lab,on],i)=>{
     const by=g.laneTop+i*g.rowH+7;
     s+=`<g data-sbtn="${k}" style="cursor:pointer">`
@@ -1217,6 +1262,38 @@ function drawScoreLive(){
       +`<text x="${(g.btnX0+bw/2).toFixed(1)}" y="${(by+bh/2).toFixed(1)}" text-anchor="middle" dominant-baseline="central" `
       +`font-size="12.5" font-weight="${on?600:400}" fill="${on?'#06202c':'var(--dim)'}">${lab}</text></g>`;
   });
+
+  /* メトロノームの振り子。ボタンの右、レーンが始まる前の空きに置く。
+     クリックを内蔵スピーカーで鳴らすと聞き取りにくいので、目でも拍が取れるように */
+  {
+    const x0=g.metroX0, x1=Math.max(x0+56, g.metroX1), mx=(x0+x1)/2;
+    const py=g.laneTop+56, L=42, K=Math.min(1,(x1-x0)/86);
+    metroPivot={x:mx, y:py};
+    const col = playing ? 'var(--accent)' : 'var(--dim2)';
+    s+='<g pointer-events="none">'
+      +`<path d="M${(mx-15*K).toFixed(1)},${py} L${(mx+15*K).toFixed(1)},${py} `
+      +`L${(mx+9*K).toFixed(1)},${(py-10*K).toFixed(1)} L${(mx-9*K).toFixed(1)},${(py-10*K).toFixed(1)} Z" `
+      +`fill="var(--panel2)" stroke="${col}" stroke-width="1.1"/>`
+      +'<g id="metroArm">'
+      +`<line x1="${mx.toFixed(1)}" y1="${py}" x2="${mx.toFixed(1)}" y2="${(py-L).toFixed(1)}" `
+      +`stroke="${col}" stroke-width="2.3" stroke-linecap="round"/>`
+      +`<rect x="${(mx-5.5).toFixed(1)}" y="${(py-L*0.62).toFixed(1)}" width="11" height="7.5" rx="1.6" fill="${col}"/>`
+      +'</g>';
+    /* 小節の中の何拍目かを点で出す */
+    const per=beatsBar, gap=Math.min(13,(x1-x0-10)/Math.max(per,1)), dy=py+13;
+    for(let i=0;i<per;i++){
+      const cx=mx+(i-(per-1)/2)*gap;
+      const done=playing&&metroBeatIn>=i, cur=playing&&metroBeatIn===i, r0=done?4:2.6;
+      if(cur) s+=`<circle id="metroPulse" cx="${cx.toFixed(1)}" cy="${dy}" r="${r0}" data-r="${r0}" `
+        +'fill="none" stroke="var(--accent)" stroke-width="1.5" opacity="0"/>';
+      s+=`<circle${cur?' id="metroNow"':''} data-r="${r0}" cx="${cx.toFixed(1)}" cy="${dy}" r="${r0}" `
+        +`fill="${done?'var(--accent)':'none'}" stroke="${done?'none':'var(--dim2)'}" stroke-width="1.1"/>`;
+    }
+    if(playing&&metroCount)
+      s+=`<text x="${mx.toFixed(1)}" y="${(py-L-8).toFixed(1)}" text-anchor="middle" font-size="15" `
+        +`font-weight="600" fill="var(--accent)">${metroCount}</text>`;
+    s+='</g>';
+  }
   if(S.lane){
     const pxMs=g.slotW/stepMs();                    /* 1打点ぶんの幅＝1打点ぶんの時間 */
 
