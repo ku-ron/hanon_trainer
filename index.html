@@ -361,7 +361,7 @@ function buildDegrees(){
     degs.push(0); pos.push(0);                 /* 最後の主音（原典の全音符にあたる） */
     return {degs, pos, groupLen:p, cells};
   }
-  const r = RUNS[P], oct = clamp(S.len,1,5);
+  const r = RUNS[P], oct = clamp(S.oct,1,5);
   const degs=[], pos=[];
   if(r.kind==='gap'){
     /* 3度・6度：音度を1つずつ上げながら、その都度 gap ぶん上の音と組にする */
@@ -456,7 +456,7 @@ const degAcc  = deg => SEQ.key.degAcc[mod(deg,7)];
    3. 設定
    ======================================================================= */
 const S = {
-  pattern:'hanon1', keyPc:0, mode:'ionian', len:14, startOct:5, hands:'both', gap:12,
+  pattern:'hanon1', keyPc:0, mode:'ionian', len:14, oct:2, startOct:5, hands:'both', gap:12,
   bpm:72, subdiv:4, countIn:4, loop:false,
   clickOut:'midi', clickPort:'', clickVoice:'wood', clickVel:52, clickDry:true,
   winMs:120, accPat:'off', t1:80, t2:60, calMs:0,
@@ -1111,11 +1111,19 @@ function drawScoreStatic(cur){
 
   let s=`<rect x="0" y="${paperTop}" width="${SCORE_W}" height="${(paperBot-paperTop).toFixed(1)}" rx="10" fill="var(--paper)"/>`;
   s+=`<g transform="translate(0,${OFF.toFixed(1)})">${g}</g>`;
+  /* どちらを弾いているかは、文字ではなく枠で示す。演奏中は目が譜面から離せないので、
+     読ませる説明ではなく、視野の端で分かる形にしておく */
   for(const b of bars){
-    const on = playing && b===cur;
-    s+=`<text x="${(noteX0+span*(mod(b,2)*0.5+0.25)).toFixed(1)}" y="12" text-anchor="middle" font-size="11.5" `
-      +`fill="${on?'var(--accent)':'var(--dim2)'}" font-weight="${on?600:400}">`
-      +`小節 ${b+1}${on?'　弾いているところ':''}</text>`;
+    const on = b===cur, slot=mod(b,2);
+    const bx = slot? midX : X0-0.7, bw = slot? (xEnd-1.4-midX) : (midX-X0+0.7);
+    if(on){
+      s+=`<rect x="${(bx-2).toFixed(1)}" y="${(paperTop+3).toFixed(1)}" width="${(bw+4).toFixed(1)}" `
+        +`height="${(paperBot-paperTop-6).toFixed(1)}" rx="8" fill="var(--accent)" opacity="0.055"/>`;
+      s+=`<rect x="${(bx-2).toFixed(1)}" y="${(paperTop+3).toFixed(1)}" width="${(bw+4).toFixed(1)}" `
+        +`height="${(paperBot-paperTop-6).toFixed(1)}" rx="8" fill="none" stroke="var(--accent)" stroke-width="2.6"/>`;
+    }
+    s+=`<text x="${(noteX0+span*(slot*0.5+0.25)).toFixed(1)}" y="12" text-anchor="middle" font-size="11.5" `
+      +`fill="${on?'var(--accent)':'var(--dim2)'}" font-weight="${on?600:400}">小節 ${b+1}</text>`;
   }
   scoreGeom={nx, bars, bs, slotW, rows, rowH, laneTop, laneBot,
              paperTop, paperBot, yTopStaff:OFF+scoreFixed.lo, yBotStaff:OFF+scoreFixed.hi, H};
@@ -1744,7 +1752,7 @@ function renderControls(){
   $('bpm').value=S.bpm; $('subdiv').value=S.subdiv; $('countIn').value=S.countIn;
   $('loopChk').checked=S.loop;
   $('pattern').value=S.pattern; $('key').value=S.keyPc; $('mode').value=S.mode;
-  $('len').value=S.len; $('startOct').value=S.startOct; $('hands').value=S.hands; $('gap').value=S.gap;
+  $('startOct').value=S.startOct; $('hands').value=S.hands; $('gap').value=S.gap;
   $('win').value=S.winMs; $('accPat').value=S.accPat; $('t1').value=S.t1; $('t2').value=S.t2;
   $('cal').value=Math.round(S.calMs);
   $('clickVol').value=S.clickVel; $('clickVolVal').textContent=S.clickVel;
@@ -1756,6 +1764,7 @@ function renderControls(){
   const isHanon=S.pattern.startsWith('hanon');
   $('lenLabel').textContent = isHanon ? '細胞の数' : 'オクターブ数';
   $('len').max = isHanon ? 24 : 5;
+  $('len').value = isHanon ? S.len : S.oct;
 
   buildSeq();
   const p=SEQ.steps;
@@ -1767,8 +1776,8 @@ function renderControls(){
     + `（調号 ${sig===0?'なし':Math.abs(sig)+(sig>0?'♯':'♭')}）　`
     + `${p.length} 打点（${(p.length/S.subdiv).toFixed(1)} 拍・${Math.ceil(p.length/barSteps())} 小節）。`
     + `音域 <b>${nm(lo)} 〜 ${nm(hi)}</b>。`
-    + (isHanon ? `ハノンの移調は半音ではなく<b>音階の中の移調</b>です。旋法を変えると、同じ指の形のまま音階だけが入れ替わります。`
-               : `旋法を変えると音階そのものが変わります。`)
+    + (isHanon ? `${S.len}個の細胞を上行し、折り返して下行します。ハノンの移調は半音ではなく<b>音階の中の移調</b>です。旋法を変えると、同じ指の形のまま音階だけが入れ替わります。`
+               : `<b>上行${S.oct}オクターブ＋下行${S.oct}オクターブ</b>。旋法を変えると音階そのものが変わります。`)
     /* ユニゾンだと左右がまったく同じ鍵になる。MIDIには「どちらの手か」の情報が無いので、
        1つの打鍵をどちらの手のものと見るか決められない */
     + (S.hands==='both'&&S.gap===0
@@ -1814,7 +1823,18 @@ function bind(){
     if(isNaN(v)) return;
     if(halt){ if(playing) stop(); playGi=-1; }
     S[key]=clamp(v,lo,hi); saveSoon(); renderControls(); drawAll(); }; };
-  num('bpm','bpm',20,240,true); num('len','len',1,24,true);
+  num('bpm','bpm',20,240,true);
+  /* 長さの意味は曲の種類で変わる（ハノンは細胞の数、音階類はオクターブ数）。
+     同じ入力欄を使い回すが、値は別々に覚えておく。1つにすると、
+     ハノンの14がスケールへ持ち込まれて頭打ちになる */
+  $('len').oninput=e=>{
+    const v=parseFloat(e.target.value);
+    if(isNaN(v)) return;
+    if(playing) stop();
+    playGi=-1;
+    if(S.pattern.startsWith('hanon')) S.len=clamp(v,1,24); else S.oct=clamp(v,1,5);
+    saveSoon(); renderControls(); drawAll();
+  };
   num('win','winMs',20,400); num('t1','t1',1,127); num('t2','t2',1,127);
   num('cal','calMs',-300,300);
   const sel=(id,key,cast,halt)=>{ $(id).onchange=e=>{
