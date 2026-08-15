@@ -150,6 +150,7 @@
   canvas.chart{display:block;width:100%}
   #chMain{height:330px}
   #chPos{height:210px}
+  #chPosVel,#chPosGate{height:210px}
   #chHist{height:210px}
   .two{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
   @media (max-width:820px){ .two{grid-template-columns:1fr} }
@@ -329,6 +330,23 @@
         <div class="chartBox">
           <canvas id="chHist" class="chart"></canvas>
           <div class="tip" id="tipHist"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="two" id="posMore">
+      <div id="posVelBox">
+        <h3>位置ごとの強さ（アクセントの表と同じ並び）</h3>
+        <div class="chartBox">
+          <canvas id="chPosVel" class="chart"></canvas>
+          <div class="tip" id="tipPosVel"></div>
+        </div>
+      </div>
+      <div id="posGateBox">
+        <h3>位置ごとの音の長さ（音価の表と同じ並び）</h3>
+        <div class="chartBox">
+          <canvas id="chPosGate" class="chart"></canvas>
+          <div class="tip" id="tipPosGate"></div>
         </div>
       </div>
     </div>
@@ -1760,6 +1778,79 @@ function drawPos(){
   ctx.fillText('ms（縦軸は中身に合わせて ±'+lim+'）', L+2, T);
 }
 
+/* 表の列ごとに、強さと音の長さがどうだったか。位置は「くり返しの中の位置」ではなく
+   アクセント／音価の表の列（＝1小節の中の位置）でそろえる。指定した場所と見比べたいので */
+let posVelGeom=null, posGateGeom=null;
+function drawPosSpec(cvId, kind){
+  const cv=$(cvId); const {ctx,w,h}=fit(cv);
+  const L=40,R=8,T=12,B=34;
+  const n=accN();
+  const isVel = kind==='vel';
+  const valFn = isVel ? (x=>x.vel) : (x=>{ const g=gateOf(x); return g==null?null:g*100; });
+  const mask  = isVel ? S.accMask : S.gateMask;
+  const th    = isVel ? [S.t1,S.t2] : [S.g1,S.g2];
+  const st=[];
+  let dataHi=0;
+  for(let p=0;p<n;p++){
+    const o={p};
+    for(const hd of ['R','L']){
+      const a=played().filter(x=>x.hand===hd && mod(x.gi,n)===p).map(valFn).filter(v=>v!=null);
+      if(a.length) dataHi=Math.max(dataHi, quant(a,.9));
+      o[hd]=a.length?{n:a.length,q1:quant(a,.25),q2:quant(a,.5),q3:quant(a,.75),
+                      lo:quant(a,.1),hi:quant(a,.9)}:null;
+    }
+    st.push(o);
+  }
+  const lim = isVel ? 127
+    : clamp(Math.ceil(Math.max(dataHi, S.g1, S.g2)*1.15/10)*10, 100, 300);
+  const Y = v => T+(h-T-B)*(1-clamp(v,0,lim)/lim);
+  const slot=(w-L-R)/n;
+  const geom={L,R,T,B,w,h,n,slot,Y,st,lim,isVel};
+  if(isVel) posVelGeom=geom; else posGateGeom=geom;
+
+  /* 求められている側を薄く塗る。緑＝この上、橙＝この下 */
+  for(let p=0;p<n;p++){
+    const v=mask[p]||0;
+    if(!v) continue;
+    const x=L+slot*p, y=Y(v>0?th[0]:th[1]);
+    ctx.fillStyle = v>0 ? C.ok : C.warn; ctx.globalAlpha=0.10;
+    if(v>0) ctx.fillRect(x+1, T, slot-2, y-T);
+    else    ctx.fillRect(x+1, y, slot-2, h-B-y);
+    ctx.globalAlpha=1;
+    ctx.strokeStyle = v>0 ? C.ok : C.warn; ctx.lineWidth=1.6;
+    ctx.beginPath(); ctx.moveTo(x+1,y); ctx.lineTo(x+slot-1,y); ctx.stroke();
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const v of (isVel?[0,64,127]:[0,50,100,lim].filter((x,i,a)=>a.indexOf(x)===i))){
+    const y=Y(v);
+    ctx.strokeStyle=C.grid; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(L,Math.round(y)+.5); ctx.lineTo(w-R,Math.round(y)+.5); ctx.stroke();
+    ctx.fillStyle=C.dim2; ctx.fillText(v+(isVel?'':'%'), L-6, y);
+  }
+  const hands = S.hands==='both'?['R','L']:[S.hands];
+  const bw=Math.min(15, slot/(hands.length+1.1));
+  for(let p=0;p<n;p++){
+    const cx=L+slot*(p+0.5);
+    hands.forEach((hd,k)=>{
+      const o=st[p][hd]; if(!o) return;
+      const x=cx + (hands.length===2 ? (k===0? bw*0.6+1 : -bw*0.6-1) : 0);
+      ctx.strokeStyle=HC(hd); ctx.lineWidth=1.2; ctx.globalAlpha=.75;
+      ctx.beginPath(); ctx.moveTo(x,Y(o.lo)); ctx.lineTo(x,Y(o.hi)); ctx.stroke();
+      ctx.globalAlpha=1;
+      ctx.fillStyle=HC(hd); ctx.globalAlpha=.5;
+      rr(ctx, x-bw/2, Y(o.q3), bw, Math.max(2,Y(o.q1)-Y(o.q3)), 3); ctx.fill();
+      ctx.globalAlpha=1;
+      ctx.strokeStyle=HC(hd); ctx.lineWidth=2.2;
+      ctx.beginPath(); ctx.moveTo(x-bw/2,Y(o.q2)); ctx.lineTo(x+bw/2,Y(o.q2)); ctx.stroke();
+    });
+    ctx.fillStyle=C.dim2; ctx.textAlign='center'; ctx.textBaseline='top';
+    ctx.fillText(String(p+1), cx, h-B+6);
+  }
+  ctx.fillStyle=C.dim2; ctx.textAlign='center';
+  ctx.fillText(isVel ? '薄い塗り＝求めている側（緑＝この上・橙＝この下）'
+                     : 'ゲート率　薄い塗り＝求めている側（緑＝この上・橙＝この下）', (L+w-R)/2, h-16);
+}
+
 /* =======================================================================
    13. 分布
    ======================================================================= */
@@ -1883,6 +1974,8 @@ function drawTable(){
 function drawAll(){
   if(!SEQ) buildSeq();
   drawTiles(); drawMain(); drawPos(); drawHist(); drawTable();
+  if(accActive())  drawPosSpec('chPosVel','vel');
+  if(gateActive()) drawPosSpec('chPosGate','gate');
 }
 
 /* =======================================================================
@@ -1931,6 +2024,18 @@ function initTips(){
     if(!body) return null;
     return {x:posGeom.L+posGeom.slot*(p+0.5), y:posGeom.Y(0), html:`<b>位置 ${p+1}</b><br>${body}`};
   });
+  const specTip=(geom,unit)=>(x,y)=>{
+    if(!geom) return null;
+    const p=Math.floor((x-geom.L)/geom.slot);
+    if(p<0||p>=geom.n) return null;
+    const o=geom.st[p];
+    const line=h=>o[h]?`<span class="k">${HN(h)}</span> 中央 <b>${Math.round(o[h].q2)}</b>${unit}・${o[h].n}打`:'';
+    const body=['R','L'].map(line).filter(Boolean).join('<br>');
+    if(!body) return null;
+    return {x:geom.L+geom.slot*(p+0.5), y:geom.Y(geom.lim/2), html:`<b>位置 ${p+1}</b><br>${body}`};
+  };
+  bindTip($('chPosVel'),  $('tipPosVel'),  (x,y)=>specTip(posVelGeom,'')(x,y));
+  bindTip($('chPosGate'), $('tipPosGate'), (x,y)=>specTip(posGateGeom,'%')(x,y));
   bindTip($('chHist'), $('tipHist'), (x,y)=>{
     if(!histGeom) return null;
     const i=Math.floor((x-histGeom.L)/histGeom.BWp);
@@ -2050,6 +2155,9 @@ function renderControls(){
     `${$('pattern').selectedOptions[0].textContent}／${SEQ.key.name} ${MODES[S.mode].n}／`
     + `${S.hands==='both'?'両手':S.hands==='R'?'右手':'左手'}／許容窓 ${S.winMs}ms`;
 
+  $('posVelBox').style.display  = accActive()  ? '' : 'none';
+  $('posGateBox').style.display = gateActive() ? '' : 'none';
+  $('posMore').style.display = (accActive()||gateActive()) ? '' : 'none';
   scoreBar=-1; scoreFixed=null; needMeasure=true;   /* 課題が変わったので楽譜は組み直す */
   drawScore(); needKb=true; drawKeyboard();
 }
