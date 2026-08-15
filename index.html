@@ -51,8 +51,18 @@
   button.on{background:var(--accent);color:#06202c;border-color:var(--accent);font-weight:600}
   button:disabled{opacity:.4;cursor:default}
   select,input[type=number]{
-    background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:8px;
+    background-color:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:8px;
     padding:8px 10px;font-size:14px;font-family:inherit;min-height:38px;
+  }
+  /* 端末やブラウザによっては、選択欄の矢印が黒いまま描かれて暗い面では見えない
+     （iPadのMIDIWeb Browserがそう）。矢印は自前で描いて色を決めてしまう */
+  select{
+    -webkit-appearance:none; -moz-appearance:none; appearance:none;
+    padding-right:32px;
+    background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" viewBox="0 0 12 8"><path d="M1 1.6L6 6.4L11 1.6" fill="none" stroke="%23aab2c4" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+    background-repeat:no-repeat;
+    background-position:right 11px center;
+    background-size:12px 8px;
   }
   input[type=number]{width:5.4em;font-variant-numeric:tabular-nums}
   label.fld{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--dim)}
@@ -71,14 +81,37 @@
   /* ---- 設定（たたんでおける） ---- */
   details.settings{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-bottom:10px}
   details.settings>summary{
-    padding:10px 12px;font-size:12px;color:var(--dim);font-weight:600;letter-spacing:.06em;
-    cursor:pointer;min-height:40px;display:flex;align-items:center;gap:8px;
+    padding:12px 14px;font-size:13.5px;color:var(--dim);font-weight:600;letter-spacing:.06em;
+    cursor:pointer;min-height:48px;display:flex;align-items:center;gap:10px;
   }
   details.settings>summary .now{color:var(--dim2);font-weight:400;letter-spacing:0}
-  details.settings .inner{padding:0 12px 10px}
+  details.settings .inner{padding:0 14px 14px;font-size:15px}
+  /* 上の設定は演奏中に見ない。場所を惜しまず、読みやすさを優先して大きくする */
+  details.settings .inner .row{gap:12px}
+  details.settings .inner .row+.row{margin-top:12px}
+  details.settings .inner label.fld{font-size:14.5px;gap:8px}
+  details.settings .inner input[type=number]{font-size:16px;min-height:46px;padding:10px 12px}
+  /* 右の余白は矢印のぶん。まとめて指定すると矢印が文字に重なる */
+  details.settings .inner select{font-size:16px;min-height:46px;padding:10px 34px 10px 12px}
+  details.settings .inner input[type=number]{width:6em}
+  details.settings .inner button{min-height:46px;font-size:15px;padding:9px 15px}
+  details.settings .inner .seg button{padding:9px 14px;font-size:14.5px}
+  details.settings .inner .hint{font-size:13px;line-height:1.75;margin-top:10px}
+  details.settings .inner .stat{font-size:13.5px}
+  details.settings .inner h3{font-size:12.5px;margin-bottom:10px}
   .block{border-top:1px solid var(--line);padding:10px 0 4px}
   .block:first-child{border-top:0;padding-top:2px}
   .block h3{font-size:11.5px;color:var(--dim2);margin:0 0 8px;letter-spacing:.06em}
+
+  /* ---- テンポ ---- */
+  .tempo{display:inline-flex;align-items:center;gap:6px}
+  .tempo input[type=range]{width:190px;min-width:110px}
+  .tempo button.step{
+    min-width:40px;min-height:38px;padding:0;font-size:19px;line-height:1;
+    font-variant-numeric:tabular-nums;
+  }
+  .tempo .val{font-variant-numeric:tabular-nums;font-size:13px;color:var(--dim);white-space:nowrap}
+  .tempo .val b{font-size:19px;color:var(--fg);font-weight:600;margin-right:2px}
 
   /* ---- 演奏モニタ ---- */
   /* 横スクロールは作らない。譜面は場所の実寸で組み直し、鍵盤は素直に縮む
@@ -203,19 +236,21 @@
       <button id="playBtn" class="primary">開始</button>
       <button id="simBtn">ためし演奏</button>
       <div class="sep"></div>
-      <label class="fld">テンポ <input type="number" id="bpm" min="20" max="240" step="1"> <span style="color:var(--dim2)">BPM</span></label>
+      <span class="tempo">
+        <button class="step" id="bpmDown" aria-label="テンポを下げる">−</button>
+        <input type="range" id="bpmRange" min="30" max="208" step="1">
+        <button class="step" id="bpmUp" aria-label="テンポを上げる">＋</button>
+        <span class="val"><b id="bpmVal"></b>BPM</span>
+      </span>
       <label class="fld">分割 <select id="subdiv">
         <option value="4">16分（1拍4つ）</option>
         <option value="3">3連8分（1拍3つ）</option>
         <option value="2">8分（1拍2つ）</option>
       </select></label>
-      <label class="fld">カウントイン <select id="countIn">
-        <option value="0">なし</option><option value="4">4拍</option><option value="8">8拍</option>
-      </select></label>
+      <label class="fld">カウントイン <span class="seg" id="countSeg">
+        <button data-v="2">2拍</button><button data-v="4">4拍</button>
+      </span></label>
       <label class="chk"><input type="checkbox" id="loopChk">くり返す</label>
-      <div class="sep"></div>
-      <label class="chk"><input type="checkbox" id="laneChk">楽譜にずれを重ねる</label>
-      <label class="chk"><input type="checkbox" id="markChk">調の音に印</label>
       <span class="stat" id="runState" style="margin-left:auto"></span>
     </div>
     <svg id="score" viewBox="0 0 1000 292" preserveAspectRatio="xMidYMid meet"></svg>
@@ -456,7 +491,8 @@ const degAcc  = deg => SEQ.key.degAcc[mod(deg,7)];
    3. 設定
    ======================================================================= */
 const S = {
-  pattern:'hanon1', keyPc:0, mode:'ionian', len:14, oct:2, startOct:5, hands:'both', gap:12,
+  ver:2,
+  pattern:'hanon1', keyPc:0, mode:'ionian', len:14, oct:2, startOct:4, hands:'both', gap:12,
   bpm:72, subdiv:4, countIn:4, loop:false,
   clickOut:'midi', clickPort:'', clickVoice:'wood', clickVel:52, clickDry:true,
   winMs:120, accPat:'off', t1:80, t2:60, calMs:0,
@@ -468,6 +504,9 @@ let saveT=null; const saveSoon=()=>{ clearTimeout(saveT); saveT=setTimeout(save,
 function load(){
   try{ const o=JSON.parse(localStorage.getItem(SAVE_KEY)||'{}');
     for(const k in S) if(k in o && typeof o[k]===typeof S[k]) S[k]=o[k];
+    /* 以前は右手を中央ハから始めていたが、ハノンの原典は1オクターブ下
+       （右手も途中までヘ音記号）から始まる。保存済みの設定も一度だけ読み替える */
+    if(!(o.ver>=2)){ S.startOct=4; S.ver=2; }
   }catch(e){}
 }
 
@@ -1104,8 +1143,10 @@ function drawScoreStatic(cur){
   const OFF = LBL + PAD - scoreFixed.lo;       /* 五線の下端を置く絶対位置 */
   const paperTop=LBL, paperBot=OFF+scoreFixed.hi+PAD;
   const rows = S.hands==='both' ? ['R','L'] : [S.hands];
+  /* 高さは手の数によらず2段ぶん取る。片手にしたときに下がせり上がって
+     画面が動くのを避けるためと、左の空きにボタンを置くため */
   const rowH=Math.max(44, 2.4*SP), laneTop=paperBot+26;
-  const laneBot=laneTop+rows.length*rowH;
+  const laneBot=laneTop+2*rowH;
   const H=laneBot+6;
   $('score').setAttribute('viewBox',`0 0 ${SCORE_W} ${H}`);
 
@@ -1115,7 +1156,9 @@ function drawScoreStatic(cur){
      読ませる説明ではなく、視野の端で分かる形にしておく */
   for(const b of bars){
     const on = b===cur, slot=mod(b,2);
-    const bx = slot? midX : X0-0.7, bw = slot? (xEnd-1.4-midX) : (midX-X0+0.7);
+    /* 囲うのは音符の場所だけ。左の小節に音部記号と調号まで入れると、
+       右の小節と幅も意味も揃わない */
+    const bx = noteX0+span*slot/2, bw = span/2;
     if(on){
       s+=`<rect x="${(bx-2).toFixed(1)}" y="${(paperTop+3).toFixed(1)}" width="${(bw+4).toFixed(1)}" `
         +`height="${(paperBot-paperTop-6).toFixed(1)}" rx="8" fill="var(--accent)" opacity="0.055"/>`;
@@ -1125,7 +1168,7 @@ function drawScoreStatic(cur){
     s+=`<text x="${(noteX0+span*(slot*0.5+0.25)).toFixed(1)}" y="12" text-anchor="middle" font-size="11.5" `
       +`fill="${on?'var(--accent)':'var(--dim2)'}" font-weight="${on?600:400}">小節 ${b+1}</text>`;
   }
-  scoreGeom={nx, bars, bs, slotW, rows, rowH, laneTop, laneBot,
+  scoreGeom={nx, bars, bs, slotW, rows, rowH, laneTop, laneBot, btnX0:8, btnX1:noteX0-42,
              paperTop, paperBot, yTopStaff:OFF+scoreFixed.lo, yBotStaff:OFF+scoreFixed.hi, H};
   $('score').innerHTML = `<g id="scoreStatic">${s}</g><g id="scoreLive"></g>`;
 }
@@ -1140,6 +1183,17 @@ function drawScoreLive(){
   const el=$('scoreLive');
   if(!el) return;
   let s='';
+  /* 譜面の左は、音部記号と調号のぶんだけレーンが右に寄って空いている。
+     演奏中に触る2つの切り替えをそこへ置く（上の設定まで戻らなくて済む） */
+  const bw=Math.max(76, g.btnX1-g.btnX0), bh=g.rowH-14;
+  [['lane','ずれを重ねる',S.lane],['marks','調の音に印',S.marks]].forEach(([k,lab,on],i)=>{
+    const by=g.laneTop+i*g.rowH+7;
+    s+=`<g data-sbtn="${k}" style="cursor:pointer">`
+      +`<rect x="${g.btnX0}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="8" `
+      +`fill="${on?'var(--accent)':'var(--panel2)'}" stroke="${on?'var(--accent)':'var(--line)'}" stroke-width="1"/>`
+      +`<text x="${(g.btnX0+bw/2).toFixed(1)}" y="${(by+bh/2).toFixed(1)}" text-anchor="middle" dominant-baseline="central" `
+      +`font-size="12.5" font-weight="${on?600:400}" fill="${on?'#06202c':'var(--dim)'}">${lab}</text></g>`;
+  });
   if(S.lane){
     const pxMs=g.slotW/stepMs();                    /* 1打点ぶんの幅＝1打点ぶんの時間 */
 
@@ -1737,7 +1791,8 @@ function fillSelects(){
     + '</optgroup>';
   $('key').innerHTML = KEYS.map((k,i)=>`<option value="${i}">${k}</option>`).join('');
   $('mode').innerHTML = Object.entries(MODES).map(([k,v])=>`<option value="${k}">${v.n}</option>`).join('');
-  $('startOct').innerHTML = [3,4,5,6].map(o=>`<option value="${o}">${'C'+(o-1)}のあたり${o===5?'（中央ハ）':''}</option>`).join('');
+  $('startOct').innerHTML = [3,4,5,6].map(o=>
+    `<option value="${o}">${'C'+(o-1)}のあたり${o===4?'（ハノン原典と同じ）':o===5?'（中央ハ）':''}</option>`).join('');
   $('clickVoiceSeg').innerHTML = Object.entries(CLICK_VOICE)
     .map(([k,v])=>`<button data-v="${k}">${v.name}</button>`).join('');
 }
@@ -1749,15 +1804,18 @@ function renderPorts(){
     : '<option value="">（MIDIにつなぐと出ます）</option>';
 }
 function renderControls(){
-  $('bpm').value=S.bpm; $('subdiv').value=S.subdiv; $('countIn').value=S.countIn;
+  S.bpm=clamp(S.bpm,30,208);
+  if(S.countIn!==2 && S.countIn!==4) S.countIn=4;   /* 以前の「なし」「8拍」からの読み替え */
+  $('bpmRange').value=S.bpm; $('bpmVal').textContent=S.bpm;
+  $('subdiv').value=S.subdiv;
   $('loopChk').checked=S.loop;
+  document.querySelectorAll('#countSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.v===S.countIn));
   $('pattern').value=S.pattern; $('key').value=S.keyPc; $('mode').value=S.mode;
   $('startOct').value=S.startOct; $('hands').value=S.hands; $('gap').value=S.gap;
   $('win').value=S.winMs; $('accPat').value=S.accPat; $('t1').value=S.t1; $('t2').value=S.t2;
   $('cal').value=Math.round(S.calMs);
   $('clickVol').value=S.clickVel; $('clickVolVal').textContent=S.clickVel;
   $('clickDryBtn').classList.toggle('on',S.clickDry);
-  $('laneChk').checked=S.lane; $('markChk').checked=S.marks;
   document.querySelectorAll('#clickOutSeg button').forEach(b=>b.classList.toggle('on',b.dataset.v===S.clickOut));
   document.querySelectorAll('#clickVoiceSeg button').forEach(b=>b.classList.toggle('on',b.dataset.v===S.clickVoice));
   document.querySelectorAll('#histSeg button').forEach(b=>b.classList.toggle('on',b.dataset.v===S.hist));
@@ -1823,7 +1881,15 @@ function bind(){
     if(isNaN(v)) return;
     if(halt){ if(playing) stop(); playGi=-1; }
     S[key]=clamp(v,lo,hi); saveSoon(); renderControls(); drawAll(); }; };
-  num('bpm','bpm',20,240,true);
+  /* テンポは数字を打つのが難しい（特にiPad）。スライダーと±で決められるようにする */
+  const setBpm=v=>{ if(playing) stop(); playGi=-1;
+    S.bpm=clamp(Math.round(v),30,208); saveSoon(); renderControls(); drawAll(); };
+  $('bpmRange').oninput=e=>setBpm(+e.target.value);
+  $('bpmDown').onclick=()=>setBpm(S.bpm-1);
+  $('bpmUp').onclick=()=>setBpm(S.bpm+1);
+  document.querySelectorAll('#countSeg button').forEach(b=>
+    b.onclick=()=>{ if(playing) stop(); playGi=-1;
+      S.countIn=+b.dataset.v; saveSoon(); renderControls(); });
   /* 長さの意味は曲の種類で変わる（ハノンは細胞の数、音階類はオクターブ数）。
      同じ入力欄を使い回すが、値は別々に覚えておく。1つにすると、
      ハノンの14がスケールへ持ち込まれて頭打ちになる */
@@ -1841,14 +1907,21 @@ function bind(){
     if(halt){ if(playing) stop(); playGi=-1; }
     S[key]=cast?cast(e.target.value):e.target.value;
     saveSoon(); renderControls(); drawAll(); }; };
-  sel('subdiv','subdiv',Number,true); sel('countIn','countIn',Number,true);
+  sel('subdiv','subdiv',Number,true);
   sel('pattern','pattern',null,true); sel('key','keyPc',Number,true); sel('mode','mode',null,true);
   sel('startOct','startOct',Number,true); sel('hands','hands',null,true); sel('gap','gap',Number,true);
   sel('accPat','accPat');
   $('clickPort').onchange=e=>{ S.clickPort=e.target.value; saveSoon(); };
   $('loopChk').onchange=e=>{ S.loop=e.target.checked; saveSoon(); };
-  $('laneChk').onchange=e=>{ S.lane=e.target.checked; saveSoon(); needScore=true; drawScore(); };
-  $('markChk').onchange=e=>{ S.marks=e.target.checked; saveSoon(); needKb=true; drawKeyboard(); };
+  /* 譜面の中に置いた切り替え（中身は描き直されるので、親で受ける） */
+  $('score').addEventListener('click',e=>{
+    const t=e.target.closest?e.target.closest('[data-sbtn]'):null;
+    if(!t) return;
+    const k=t.getAttribute('data-sbtn');
+    if(k==='lane') S.lane=!S.lane;
+    else if(k==='marks'){ S.marks=!S.marks; needKb=true; drawKeyboard(); }
+    saveSoon(); needScore=true; drawScoreLive();
+  });
   $('clickVol').oninput=e=>{ S.clickVel=clamp(+e.target.value||52,10,127);
     $('clickVolVal').textContent=S.clickVel; saveSoon(); };
   $('clickDryBtn').onclick=()=>{ S.clickDry=!S.clickDry; renderControls(); saveSoon(); };
