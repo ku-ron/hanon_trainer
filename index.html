@@ -118,6 +118,9 @@
   .accGrid .cell.on.r1{background:var(--ok)}
   .accGrid .cell.on.r2{background:var(--warn)}
   #accBox.off,#gateBox.off{display:none}
+  /* 判定の条件は、ずれ・強さ・長さで見るものが違うので区切る */
+  .sub{border-top:1px dashed var(--line);margin-top:16px;padding-top:12px}
+  .presets{gap:8px}
 
   /* ---- テンポ ---- */
   .tempo{display:inline-flex;align-items:center;gap:6px}
@@ -225,43 +228,55 @@
           <span class="stat" id="winHint"></span>
         </div>
         <div class="row">
-          <label class="chk"><input type="checkbox" id="accOn">アクセントを判定する</label>
-          <span class="seg" id="accPreset">
-            <button data-p="all">全部 強</button><button data-p="beat">拍の頭だけ 強</button>
-            <button data-p="alt">ひとつおき 強／弱</button><button data-p="clear">全部 なし</button>
-          </span>
-        </div>
-        <div id="accBox">
-          <div class="accGrid" id="accGrid"></div>
-          <div class="row">
-            <label class="fld" id="t1Fld">強い音は <input type="number" id="t1" min="1" max="127" step="1"> 以上</label>
-            <label class="fld" id="t2Fld">弱い音は <input type="number" id="t2" min="1" max="127" step="1"> 以下</label>
-            <span class="stat" id="accHint"></span>
-          </div>
-        </div>
-        <div class="row" style="margin-top:14px">
-          <label class="chk"><input type="checkbox" id="gateOn">音の長さを判定する</label>
-          <span class="seg" id="gatePreset">
-            <button data-p="all">全部 長い</button><button data-p="stac">全部 短い</button>
-            <button data-p="alt">ひとつおき 長／短</button><button data-p="clear">全部 なし</button>
-          </span>
-        </div>
-        <div id="gateBox">
-          <div class="accGrid" id="gateGrid"></div>
-          <div class="row">
-            <label class="fld" id="g1Fld">長い音は <input type="number" id="g1" min="10" max="200" step="5"> % 以上</label>
-            <label class="fld" id="g2Fld">短い音は <input type="number" id="g2" min="5" max="150" step="5"> % 以下</label>
-            <span class="stat">1打点の長さに対して押している割合。100%＝つぎの音が始まるところまで保持</span>
-          </div>
-          <p class="hint">ペダルを踏んでいる間は音が繋がるので、その打点は長さを判定しません。曲の終わりの主音も対象外です。</p>
-        </div>
-        <div class="row">
           <label class="fld">ずれのゼロ点 <input type="number" id="cal" min="-300" max="300" step="1"> <span style="color:var(--dim2)">ms</span></label>
           <button id="calBtn">いまのずれを0にする</button>
           <button id="calResetBtn">0に戻す</button>
           <span class="stat" id="calHint"></span>
         </div>
         <p class="hint">MIDIの入力にも数ms〜十数msの遅れがあり、機種を変えると値も変わります。そのため<b>生のタイムスタンプは絶対的な正解ではありません</b>。ふつうに1〜2回弾いてから「いまのずれを0にする」を押すと、そのときの中央値を基準にします。以後は<b>その基準からのばらつき</b>を見ることになります。許容窓は散布図の縦軸の範囲でもあるので、<b>図のいちばん端の点＝かろうじて正解と認めた打鍵</b>になります。</p>
+
+        <div class="sub">
+          <div class="row">
+            <span class="fld">アクセント（強さ）</span>
+            <span class="seg" id="accSeg"><button data-v="0">判定しない</button><button data-v="1">判定する</button></span>
+          </div>
+          <div id="accBox">
+            <div class="row presets" id="accPreset">
+              <button data-p="all">全部 強</button>
+              <button data-p="allw">全部 弱</button>
+              <button data-p="head">拍の頭だけ 強</button>
+              <button data-p="alt">ひとつおき 強／弱</button>
+            </div>
+            <div class="accGrid" id="accGrid"></div>
+            <div class="row">
+              <label class="fld" id="t1Fld">強い音は <input type="number" id="t1" min="1" max="127" step="1"> 以上</label>
+              <label class="fld" id="t2Fld">弱い音は <input type="number" id="t2" min="1" max="127" step="1"> 以下</label>
+              <span class="stat" id="accHint"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="sub">
+          <div class="row">
+            <span class="fld">音の長さ</span>
+            <span class="seg" id="gateSeg"><button data-v="0">判定しない</button><button data-v="1">判定する</button></span>
+          </div>
+          <div id="gateBox">
+            <div class="row presets" id="gatePreset">
+              <button data-p="all">全部 長い</button>
+              <button data-p="stac">全部 短い</button>
+              <button data-p="beat">長・短・短・短</button>
+              <button data-p="alt">ひとつおき 長／短</button>
+            </div>
+            <div class="accGrid" id="gateGrid"></div>
+            <div class="row">
+              <label class="fld" id="g1Fld">長い音は <input type="number" id="g1" min="10" max="200" step="5"> % 以上</label>
+              <label class="fld" id="g2Fld">短い音は <input type="number" id="g2" min="5" max="150" step="5"> % 以下</label>
+              <span class="stat">1打点の長さに対して押している割合。100%＝つぎの音が始まるところまで保持</span>
+            </div>
+            <p class="hint">ペダルを踏んでいる間は音が繋がるので、その打点は長さを判定しません。曲の終わりの主音も対象外です。</p>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -291,7 +306,6 @@
     </div>
     <svg id="score" viewBox="0 0 1000 292" preserveAspectRatio="xMidYMid meet"></svg>
     <svg id="kb" viewBox="0 -124 1196 280" preserveAspectRatio="xMidYMid meet"></svg>
-    <p class="hint"><b>楽譜は2小節ぶんが出て、位置は動きません。</b>いま弾いている小節の隣にはつぎの小節が出ていて、そこへ進むと、弾き終わった側だけがその先の小節に入れ替わります。<b>ためし演奏</b>は、電子ピアノが手元になくても動きを見るためのものです（わざと少しよれた演奏を作って、実機と同じ判定経路に流します）。</p>
   </div>
 
   <!-- ================= 下：結果 ================= -->
@@ -556,13 +570,13 @@ const degAcc  = deg => SEQ.key.degAcc[mod(deg,7)];
    3. 設定
    ======================================================================= */
 const S = {
-  ver:2,
+  ver:4,
   pattern:'hanon1', keyPc:0, mode:'ionian', len:14, oct:2, startOct:4, hands:'both', gap:12,
   bpm:72, subdiv:4, countIn:4, loop:false,
   clickOut:'midi', clickPort:'', clickVoice:'wood', clickVel:52, clickDry:true,
   winMs:120, calMs:0,
-  accMask:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], t1:80, t2:60,
-  gateMask:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], g1:90, g2:50,
+  accMask:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], t1:100, t2:60,
+  gateMask:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], g1:80, g2:50,
   lane:true, marks:true, hist:'dev',
 };
 const SAVE_KEY='hanon_trainer_v1';
@@ -580,7 +594,11 @@ function load(){
         const v=+S[k][i]; return v>0?1:(v<0?-1:0); });
     /* 以前は右手を中央ハから始めていたが、ハノンの原典は1オクターブ下
        （右手も途中までヘ音記号）から始まる。保存済みの設定も一度だけ読み替える */
-    if(!(o.ver>=2)){ S.startOct=4; S.ver=2; }
+    if(!(o.ver>=2)) S.startOct=4;
+    /* 目安の作り直し。手で変えた値はそのままにする */
+    if(!(o.ver>=3) && S.t1===80) S.t1=100;   /* 強い音 80 → 100 */
+    if(!(o.ver>=4) && S.g1===90) S.g1=80;    /* 長い音 90% → 80% */
+    S.ver=4;
   }catch(e){}
 }
 
@@ -2186,8 +2204,10 @@ function renderGrid(id, rows, mask){
 function renderAccent(){
   const n=accN();
   const on=accActive(), gon=gateActive();
-  $('accOn').checked=on;   $('accBox').classList.toggle('off',!on);
-  $('gateOn').checked=gon; $('gateBox').classList.toggle('off',!gon);
+  $('accBox').classList.toggle('off',!on);
+  $('gateBox').classList.toggle('off',!gon);
+  document.querySelectorAll('#accSeg button').forEach(b=>b.classList.toggle('on',(+b.dataset.v===1)===on));
+  document.querySelectorAll('#gateSeg button').forEach(b=>b.classList.toggle('on',(+b.dataset.v===1)===gon));
   $('t1Fld').style.display = accHas(1)  ? '' : 'none';
   $('t2Fld').style.display = accHas(-1) ? '' : 'none';
   $('g1Fld').style.display = gateHas(1) ? '' : 'none';
@@ -2199,12 +2219,17 @@ function renderAccent(){
   renderGrid('accGrid',  ACC_ROWS,  S.accMask);
   renderGrid('gateGrid', GATE_ROWS, S.gateMask);
 }
+/* ひな型。「拍の頭だけ強」は、頭以外を弱と決めつけずに「なし」にしておく
+   （弱く弾けという指示にはしたくない）。音の長さの「長・短・短・短」は逆に、
+   拍の頭を長く、それ以外を短く、という具体的な形なので両方を埋める */
 function maskPreset(mask, kind){
   const n=accN();
   for(let c=0;c<16;c++){
     if(c>=n){ mask[c]=0; continue; }
     if(kind==='all')       mask[c]=1;
-    else if(kind==='stac') mask[c]=-1;
+    else if(kind==='allw'
+         || kind==='stac') mask[c]=-1;
+    else if(kind==='head') mask[c]= mod(c,S.subdiv)===0 ? 1 : 0;
     else if(kind==='beat') mask[c]= mod(c,S.subdiv)===0 ? 1 : -1;
     else if(kind==='alt')  mask[c]= mod(c,2)===0 ? 1 : -1;
     else                   mask[c]=0;
@@ -2293,18 +2318,18 @@ function bind(){
   sel('subdiv','subdiv',Number,true);
   sel('pattern','pattern',null,true); sel('key','keyPc',Number,true); sel('mode','mode',null,true);
   sel('startOct','startOct',Number,true); sel('hands','hands',null,true); sel('gap','gap',Number,true);
-  $('accOn').onchange=e=>{
+  document.querySelectorAll('#accSeg button').forEach(b=>b.onclick=()=>{
     if(playing) stop();
-    accPreset(e.target.checked ? 'beat' : 'clear');
+    maskPreset(S.accMask, +b.dataset.v ? 'head' : 'clear');
     saveSoon(); renderControls(); drawAll();
-  };
+  });
   document.querySelectorAll('#accPreset button').forEach(b=>
     b.onclick=()=>{ if(playing) stop(); maskPreset(S.accMask,b.dataset.p); saveSoon(); renderControls(); drawAll(); });
-  $('gateOn').onchange=e=>{
+  document.querySelectorAll('#gateSeg button').forEach(b=>b.onclick=()=>{
     if(playing) stop();
-    maskPreset(S.gateMask, e.target.checked ? 'stac' : 'clear');
+    maskPreset(S.gateMask, +b.dataset.v ? 'beat' : 'clear');
     saveSoon(); renderControls(); drawAll();
-  };
+  });
   document.querySelectorAll('#gatePreset button').forEach(b=>
     b.onclick=()=>{ if(playing) stop(); maskPreset(S.gateMask,b.dataset.p); saveSoon(); renderControls(); drawAll(); });
   $('clickPort').onchange=e=>{ S.clickPort=e.target.value; saveSoon(); };
