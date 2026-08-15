@@ -103,6 +103,22 @@
   .block:first-child{border-top:0;padding-top:2px}
   .block h3{font-size:11.5px;color:var(--dim2);margin:0 0 8px;letter-spacing:.06em}
 
+  /* ---- アクセントの指定（1打点ずつ） ---- */
+  .accGrid{display:grid;gap:5px;align-items:center;margin:12px 0 10px}
+  .accGrid .lab{font-size:13.5px;color:var(--dim);text-align:right;padding-right:8px;white-space:nowrap}
+  .accGrid .num{font-size:11.5px;color:var(--dim2);text-align:center;font-variant-numeric:tabular-nums}
+  .accGrid .num.beat{color:var(--fg);font-weight:600}
+  .accGrid .cell{
+    min-height:34px;min-width:0;padding:0;border-radius:7px;
+    background:var(--panel2);border:1px solid var(--line);cursor:pointer;
+  }
+  .accGrid .cell:hover{border-color:var(--dim2)}
+  .accGrid .cell.on{border-width:0}
+  .accGrid .cell.on.r0{background:var(--dim2)}
+  .accGrid .cell.on.r1{background:var(--ok)}
+  .accGrid .cell.on.r2{background:var(--warn)}
+  #accBox.off{display:none}
+
   /* ---- テンポ ---- */
   .tempo{display:inline-flex;align-items:center;gap:6px}
   .tempo input[type=range]{width:190px;min-width:110px}
@@ -208,15 +224,19 @@
           <span class="stat" id="winHint"></span>
         </div>
         <div class="row">
-          <label class="fld">アクセント <select id="accPat">
-            <option value="off">判定しない</option>
-            <option value="all">全部を強く</option>
-            <option value="beat">拍の頭だけ強く</option>
-            <option value="cell">細胞の頭だけ強く</option>
-            <option value="alt">ひとつおきに強く</option>
-          </select></label>
-          <label class="fld">強い音は <input type="number" id="t1" min="1" max="127" step="1"> 以上</label>
-          <label class="fld">弱い音は <input type="number" id="t2" min="1" max="127" step="1"> 以下</label>
+          <label class="chk"><input type="checkbox" id="accOn">アクセントを判定する</label>
+          <span class="seg" id="accPreset">
+            <button data-p="all">全部 強</button><button data-p="beat">拍の頭だけ 強</button>
+            <button data-p="alt">ひとつおき 強／弱</button><button data-p="clear">全部 なし</button>
+          </span>
+        </div>
+        <div id="accBox">
+          <div class="accGrid" id="accGrid"></div>
+          <div class="row">
+            <label class="fld" id="t1Fld">強い音は <input type="number" id="t1" min="1" max="127" step="1"> 以上</label>
+            <label class="fld" id="t2Fld">弱い音は <input type="number" id="t2" min="1" max="127" step="1"> 以下</label>
+            <span class="stat" id="accHint"></span>
+          </div>
         </div>
         <div class="row">
           <label class="fld">ずれのゼロ点 <input type="number" id="cal" min="-300" max="300" step="1"> <span style="color:var(--dim2)">ms</span></label>
@@ -251,7 +271,7 @@
         <button data-v="2">2拍</button><button data-v="4">4拍</button>
       </span></label>
       <label class="chk"><input type="checkbox" id="loopChk">くり返す</label>
-      <span class="stat" id="runState" style="margin-left:auto"></span>
+      <span class="stat" id="runState" style="margin-left:auto;min-width:12.5em;text-align:right"></span>
     </div>
     <svg id="score" viewBox="0 0 1000 292" preserveAspectRatio="xMidYMid meet"></svg>
     <svg id="kb" viewBox="0 -134 1196 290" preserveAspectRatio="xMidYMid meet"></svg>
@@ -279,7 +299,7 @@
 
     <div class="two">
       <div>
-        <h3>細胞の中の位置ごと（指の癖）</h3>
+        <h3>くり返しの中の位置ごと（指の癖）</h3>
         <div class="chartBox">
           <canvas id="chPos" class="chart"></canvas>
           <div class="tip" id="tipPos"></div>
@@ -346,11 +366,11 @@ function degToMidi(tonic, semis, deg){
    1音ずつ読み出して音度に直し、下の数値から楽譜を組み直して原典と一致することを
    確かめてある（20曲中14曲は全音一致。残り6曲も、上行から下行への折り返しや
    締めくくりの1〜4音だけ、原典が形を崩している箇所での差）。
-     up   … 上行の細胞（8音）。1細胞ごとに音度を1つ上げる
-     down … 下行の細胞。1細胞ごとに音度を1つ下げる
-     base … 1つめの細胞の開始音度（主音からいくつ上か）
-     d    … 下行の開始位置（上行最後の細胞の開始音度からのずれ）
-     dc   … 下行の細胞数（上行に対する増減）
+     up   … 上行の1小節（8音）。1小節ごとに音度を1つ上げる
+     down … 下行の1小節。1小節ごとに音度を1つ下げる
+     base … 1小節目の開始音度（主音からいくつ上か）
+     d    … 下行の開始位置（上行最後の小節の開始音度からのずれ）
+     dc   … 下行の小節数（上行に対する増減）
    ------------------------------------------------------------------------ */
 const HANON = [
  {n:1, base:0,cells:14,d:5, dc:1, up:[0,2,3,4,5,4,3,2],     down:[0,-2,-3,-4,-5,-4,-3,-2]},
@@ -429,17 +449,20 @@ function buildSeq(){
   return SEQ;
 }
 const seqLen = () => SEQ ? SEQ.steps.length : 0;
-/* 楽譜の1小節ぶん。ハノンは細胞がそのまま1小節（原典は2/4） */
-const barSteps = () => S.pattern.startsWith('hanon') ? SEQ.groupLen : S.subdiv*2;
+/* 楽譜の1小節ぶん。ハノンは1つの型がそのまま1小節（原典は2/4） */
+const barSteps = () => { if(!SEQ) buildSeq();
+  return S.pattern.startsWith('hanon') ? SEQ.groupLen : S.subdiv*2; };
 
-function accentOf(i){
-  const p = S.accPat;
-  if(p==='off') return null;
-  if(p==='all') return true;
-  if(p==='beat') return mod(i,S.subdiv)===0;
-  if(p==='cell') return mod(i,SEQ.groupLen)===0;
-  if(p==='alt')  return mod(i,2)===0;
-  return null;
+/* アクセントは1打点ずつ、強（1）／弱（-1）／なし（0）で指定する。
+   くり返しの単位は楽譜の1小節（ハノンなら8打点）。1つも指定が無ければ判定しない。
+   スタッカート／レガートを足すときも、この表に列を増やすだけで済む形にしてある */
+const accN      = () => barSteps();
+const accHas    = v => S.accMask.slice(0, accN()).some(x=>x===v);
+const accActive = () => accHas(1) || accHas(-1);
+function accentOf(gi){
+  if(!accActive()) return null;
+  const v = S.accMask[mod(gi, accN())] || 0;
+  return v===0 ? null : v>0;
 }
 
 /* =======================================================================
@@ -495,7 +518,7 @@ const S = {
   pattern:'hanon1', keyPc:0, mode:'ionian', len:14, oct:2, startOct:4, hands:'both', gap:12,
   bpm:72, subdiv:4, countIn:4, loop:false,
   clickOut:'midi', clickPort:'', clickVoice:'wood', clickVel:52, clickDry:true,
-  winMs:120, accPat:'off', t1:80, t2:60, calMs:0,
+  winMs:120, accMask:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], t1:80, t2:60, calMs:0,
   lane:true, marks:true, hist:'dev',
 };
 const SAVE_KEY='hanon_trainer_v1';
@@ -503,7 +526,13 @@ function save(){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify(S)); }catch(
 let saveT=null; const saveSoon=()=>{ clearTimeout(saveT); saveT=setTimeout(save,400); };
 function load(){
   try{ const o=JSON.parse(localStorage.getItem(SAVE_KEY)||'{}');
-    for(const k in S) if(k in o && typeof o[k]===typeof S[k]) S[k]=o[k];
+    for(const k in S){
+      if(!(k in o) || typeof o[k]!==typeof S[k]) continue;
+      if(Array.isArray(S[k])!==Array.isArray(o[k])) continue;
+      S[k]=o[k];
+    }
+    if(Array.isArray(S.accMask)) S.accMask=Array.from({length:16},(_,i)=>{
+      const v=+S.accMask[i]; return v>0?1:(v<0?-1:0); });
     /* 以前は右手を中央ハから始めていたが、ハノンの原典は1オクターブ下
        （右手も途中までヘ音記号）から始まる。保存済みの設定も一度だけ読み替える */
     if(!(o.ver>=2)){ S.startOct=4; S.ver=2; }
@@ -821,7 +850,7 @@ function noteOn(note, vel, t){
 function addHit(e, note, vel, t, dev, kind){
   e.done=true;
   const h={gi:e.gi, hand:e.hand, pos:e.pos, note, expMidi:e.midi, vel, onT:t, offT:null,
-           offVel:null, dev, kind, accent:accentOf(mod(e.gi,seqLen())), pedal, stepMs:stepMs()};
+           offVel:null, dev, kind, accent:accentOf(e.gi), pedal, stepMs:stepMs()};
   hits.push(h);
   soundingMap.set(note, h);
   onHit();
@@ -847,7 +876,7 @@ function sweep(now){
       if(!e.done){
         hits.push({gi:e.gi, hand:e.hand, pos:e.pos, note:null, expMidi:e.midi,
                    vel:null, onT:null, offT:null, offVel:null, dev:null,
-                   kind:'miss', accent:accentOf(mod(e.gi,seqLen())), pedal:false, stepMs:stepMs()});
+                   kind:'miss', accent:accentOf(e.gi), pedal:false, stepMs:stepMs()});
         dirty=true; needScore=true;   /* 抜けだけが増えていく間も画面を進める */
       }
       pending.splice(i,1);
@@ -1139,7 +1168,7 @@ function drawScoreStatic(cur){
   }
 
   /* ---- 枠と目盛り。高さは曲を通して決め打ちなので、演奏中に画面は動かない ---- */
-  const LBL=17, PAD=0.8*SP;
+  const LBL=6, PAD=0.8*SP;
   const OFF = LBL + PAD - scoreFixed.lo;       /* 五線の下端を置く絶対位置 */
   const paperTop=LBL, paperBot=OFF+scoreFixed.hi+PAD;
   const rows = S.hands==='both' ? ['R','L'] : [S.hands];
@@ -1154,19 +1183,13 @@ function drawScoreStatic(cur){
   s+=`<g transform="translate(0,${OFF.toFixed(1)})">${g}</g>`;
   /* どちらを弾いているかは、文字ではなく枠で示す。演奏中は目が譜面から離せないので、
      読ませる説明ではなく、視野の端で分かる形にしておく */
-  for(const b of bars){
-    const on = b===cur, slot=mod(b,2);
-    /* 囲うのは音符の場所だけ。左の小節に音部記号と調号まで入れると、
-       右の小節と幅も意味も揃わない */
-    const bx = noteX0+span*slot/2, bw = span/2;
-    if(on){
-      s+=`<rect x="${(bx-2).toFixed(1)}" y="${(paperTop+3).toFixed(1)}" width="${(bw+4).toFixed(1)}" `
-        +`height="${(paperBot-paperTop-6).toFixed(1)}" rx="8" fill="var(--accent)" opacity="0.055"/>`;
-      s+=`<rect x="${(bx-2).toFixed(1)}" y="${(paperTop+3).toFixed(1)}" width="${(bw+4).toFixed(1)}" `
-        +`height="${(paperBot-paperTop-6).toFixed(1)}" rx="8" fill="none" stroke="var(--accent)" stroke-width="2.6"/>`;
-    }
-    s+=`<text x="${(noteX0+span*(slot*0.5+0.25)).toFixed(1)}" y="12" text-anchor="middle" font-size="11.5" `
-      +`fill="${on?'var(--accent)':'var(--dim2)'}" font-weight="${on?600:400}">小節 ${b+1}</text>`;
+  /* どちらを弾いているかは枠だけで示す。文字を出すと、出た瞬間に下がずれる */
+  {
+    const slot=mod(cur,2), bx=noteX0+span*slot/2, bw=span/2;
+    s+=`<rect x="${(bx-2).toFixed(1)}" y="${(paperTop+3).toFixed(1)}" width="${(bw+4).toFixed(1)}" `
+      +`height="${(paperBot-paperTop-6).toFixed(1)}" rx="8" fill="var(--accent)" opacity="0.055"/>`;
+    s+=`<rect x="${(bx-2).toFixed(1)}" y="${(paperTop+3).toFixed(1)}" width="${(bw+4).toFixed(1)}" `
+      +`height="${(paperBot-paperTop-6).toFixed(1)}" rx="8" fill="none" stroke="var(--accent)" stroke-width="2.6"/>`;
   }
   scoreGeom={nx, bars, bs, slotW, rows, rowH, laneTop, laneBot, btnX0:8, btnX1:noteX0-42,
              paperTop, paperBot, yTopStaff:OFF+scoreFixed.lo, yBotStaff:OFF+scoreFixed.hi, H};
@@ -1288,7 +1311,8 @@ function drawKeyboard(){
     s+=`<line x1="18" y1="${y.toFixed(1)}" x2="1196" y2="${y.toFixed(1)}" stroke="var(--line)" stroke-width="0.8" opacity="${lv===0?1:0.7}"/>`;
     if(lab) s+=`<text x="15" y="${y.toFixed(1)}" text-anchor="end" dominant-baseline="central" font-size="10" fill="var(--dim2)">${lab}</text>`;
   }
-  if(S.accPat!=='off') for(const [v,col] of [[S.t1,'var(--ok)'],[S.t2,'var(--warn)']]){
+  for(const [v,col,use] of [[S.t1,'var(--ok)',accHas(1)],[S.t2,'var(--warn)',accHas(-1)]]){
+    if(!use) continue;
     const y=vy(v);
     s+=`<line x1="18" y1="${y.toFixed(1)}" x2="1196" y2="${y.toFixed(1)}" stroke="${col}" stroke-width="1" stroke-dasharray="5 4" opacity="0.75"/>`;
   }
@@ -1478,9 +1502,12 @@ function drawMain(){
     ctx.fillStyle=C.dim2; ctx.textAlign='right'; ctx.textBaseline='middle';
     ctx.fillText(v, L-6, y);
   }
-  if(S.accPat!=='off'){
-    /* 2本の線が近いことがあるので、片方を左端、片方を右端に置く */
-    for(const [v,col,lab,side] of [[S.t1,C.ok,'強い音はここ以上','l'],[S.t2,C.warn,'弱い音はここ以下','r']]){
+  {
+    /* 2本の線が近いことがあるので、片方を左端、片方を右端に置く。
+       強（弱）の指定が1つも無ければ、その線は引かない */
+    for(const [v,col,lab,side,use] of [[S.t1,C.ok,'強い音はここ以上','l',accHas(1)],
+                                       [S.t2,C.warn,'弱い音はここ以下','r',accHas(-1)]]){
+      if(!use) continue;
       const y=YV(v);
       ctx.strokeStyle=col; ctx.globalAlpha=.7; ctx.setLineDash([5,4]); ctx.lineWidth=1.2;
       ctx.beginPath(); ctx.moveTo(L,y); ctx.lineTo(w-R,y); ctx.stroke();
@@ -1496,7 +1523,7 @@ function drawMain(){
     const off = S.hands==='both' ? (x.hand==='R'? bw*0.6 : -bw*0.6) : 0;
     const y=YV(x.vel);
     ctx.fillStyle=HC(x.hand);
-    const bad = S.accPat!=='off' && x.accent!=null && (x.accent ? x.vel<S.t1 : x.vel>S.t2);
+    const bad = x.accent!=null && (x.accent ? x.vel<S.t1 : x.vel>S.t2);
     ctx.globalAlpha = bad ? 1 : 0.62;
     rr(ctx, X(x.gi)+off-bw/2, y, bw, yVel0+hVel-y, 2); ctx.fill();
     if(bad){ ctx.strokeStyle=C.ng; ctx.lineWidth=1.2;
@@ -1511,7 +1538,7 @@ function drawMain(){
 }
 
 /* =======================================================================
-   12. 細胞の中の位置ごと
+   12. くり返しの中の位置ごと
    ======================================================================= */
 let posGeom=null;
 function posStats(){
@@ -1569,7 +1596,7 @@ function drawPos(){
     ctx.fillText(String(p+1), cx, h-B+6);
   }
   ctx.fillStyle=C.dim2; ctx.textAlign='center';
-  ctx.fillText('細胞の中の位置　箱＝中央の半分、線＝上下1割ずつを除いた幅', (L+w-R)/2, h-16);
+  ctx.fillText('くり返しの中の位置　箱＝中央の半分、線＝上下1割ずつを除いた幅', (L+w-R)/2, h-16);
   ctx.textAlign='left'; ctx.textBaseline='top';
   ctx.fillText('ms（縦軸は中身に合わせて ±'+lim+'）', L+2, T);
 }
@@ -1664,7 +1691,7 @@ function drawTiles(){
   t.push(`<div class="tile"><div class="t">音の正しさ</div>
     <div class="v">${pct(s.count.ok,tot)}</div>
     <div class="s">正解 ${s.count.ok}・音違い ${s.count.wrong}・抜け ${s.count.miss}・余分 ${s.count.extra}</div></div>`);
-  if(S.accPat!=='off')
+  if(accActive())
     t.push(`<div class="tile"><div class="t">アクセントの達成</div>
       <div class="v">${pct(s.acc.ok,s.acc.n)}</div>
       <div class="s">${s.acc.ok} / ${s.acc.n} 打</div></div>`);
@@ -1768,7 +1795,7 @@ function simSchedule(gi, t){
     const dev = handBias + posBias + gauss()*7 + simBias;
     const wrong = Math.random()<0.008;
     const note = clamp(st[hd] + (wrong?1:0), 21, 108);
-    const want = accentOf(mod(gi,seqLen()));
+    const want = accentOf(gi);
     const base = want===true ? S.t1+10 : want===false ? S.t2-12 : 74;
     const vel = clamp(Math.round(base+gauss()*9), 1, 127);
     const at = t + dev, gate = stepMs()*(0.55+Math.random()*0.3);
@@ -1812,7 +1839,7 @@ function renderControls(){
   document.querySelectorAll('#countSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.v===S.countIn));
   $('pattern').value=S.pattern; $('key').value=S.keyPc; $('mode').value=S.mode;
   $('startOct').value=S.startOct; $('hands').value=S.hands; $('gap').value=S.gap;
-  $('win').value=S.winMs; $('accPat').value=S.accPat; $('t1').value=S.t1; $('t2').value=S.t2;
+  $('win').value=S.winMs; $('t1').value=S.t1; $('t2').value=S.t2;
   $('cal').value=Math.round(S.calMs);
   $('clickVol').value=S.clickVel; $('clickVolVal').textContent=S.clickVel;
   $('clickDryBtn').classList.toggle('on',S.clickDry);
@@ -1820,11 +1847,12 @@ function renderControls(){
   document.querySelectorAll('#clickVoiceSeg button').forEach(b=>b.classList.toggle('on',b.dataset.v===S.clickVoice));
   document.querySelectorAll('#histSeg button').forEach(b=>b.classList.toggle('on',b.dataset.v===S.hist));
   const isHanon=S.pattern.startsWith('hanon');
-  $('lenLabel').textContent = isHanon ? '細胞の数' : 'オクターブ数';
+  $('lenLabel').textContent = isHanon ? '小節の数' : 'オクターブ数';
   $('len').max = isHanon ? 24 : 5;
   $('len').value = isHanon ? S.len : S.oct;
 
   buildSeq();
+  renderAccent();
   const p=SEQ.steps;
   const lo=Math.min(...p.map(x=>S.hands==='R'?x.R:x.L)), hi=Math.max(...p.map(x=>S.hands==='L'?x.L:x.R));
   const nm = n => ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'][mod(n,12)]+(Math.floor(n/12)-1);
@@ -1834,7 +1862,7 @@ function renderControls(){
     + `（調号 ${sig===0?'なし':Math.abs(sig)+(sig>0?'♯':'♭')}）　`
     + `${p.length} 打点（${(p.length/S.subdiv).toFixed(1)} 拍・${Math.ceil(p.length/barSteps())} 小節）。`
     + `音域 <b>${nm(lo)} 〜 ${nm(hi)}</b>。`
-    + (isHanon ? `${S.len}個の細胞を上行し、折り返して下行します。ハノンの移調は半音ではなく<b>音階の中の移調</b>です。旋法を変えると、同じ指の形のまま音階だけが入れ替わります。`
+    + (isHanon ? `${S.len}小節ぶん上行し、折り返して下行します。ハノンの移調は半音ではなく<b>音階の中の移調</b>です。旋法を変えると、同じ指の形のまま音階だけが入れ替わります。`
                : `<b>上行${S.oct}オクターブ＋下行${S.oct}オクターブ</b>。旋法を変えると音階そのものが変わります。`)
     /* ユニゾンだと左右がまったく同じ鍵になる。MIDIには「どちらの手か」の情報が無いので、
        1つの打鍵をどちらの手のものと見るか決められない */
@@ -1852,6 +1880,46 @@ function renderControls(){
   scoreBar=-1; scoreFixed=null; needMeasure=true;   /* 課題が変わったので楽譜は組み直す */
   drawScore(); needKb=true; drawKeyboard();
 }
+/* アクセントの表。縦は1列に1つだけ選べる（なし・強・弱）。
+   強が1つでもあれば強の閾値を、弱が1つでもあれば弱の閾値をベロシティの段に描く */
+const ACC_ROWS=[['なし',0],['強',1],['弱',-1]];
+function renderAccent(){
+  const n=accN(), on=accActive();
+  $('accOn').checked=on;
+  $('accBox').classList.toggle('off',!on);
+  $('t1Fld').style.display = accHas(1) ? '' : 'none';
+  $('t2Fld').style.display = accHas(-1) ? '' : 'none';
+  $('accHint').textContent = on
+    ? `1小節（${n}打点）ぶんをくり返します`
+    : '';
+  const g=$('accGrid');
+  g.style.gridTemplateColumns=`4.2em repeat(${n}, minmax(0,1fr))`;
+  let h='<div></div>';
+  for(let c=0;c<n;c++)
+    h+=`<div class="num${mod(c,S.subdiv)===0?' beat':''}">${c+1}</div>`;
+  ACC_ROWS.forEach(([lab,v],r)=>{
+    h+=`<div class="lab">${lab}</div>`;
+    for(let c=0;c<n;c++)
+      h+=`<button class="cell r${r}${(S.accMask[c]||0)===v?' on':''}" data-c="${c}" data-v="${v}"></button>`;
+  });
+  g.innerHTML=h;
+  g.querySelectorAll('.cell').forEach(b=>b.onclick=()=>{
+    if(playing) stop();
+    S.accMask[+b.dataset.c]=+b.dataset.v;
+    saveSoon(); renderControls(); drawAll();
+  });
+}
+function accPreset(kind){
+  const n=accN();
+  for(let c=0;c<16;c++){
+    if(c>=n){ S.accMask[c]=0; continue; }
+    if(kind==='all')       S.accMask[c]=1;
+    else if(kind==='beat') S.accMask[c]= mod(c,S.subdiv)===0 ? 1 : -1;
+    else if(kind==='alt')  S.accMask[c]= mod(c,2)===0 ? 1 : -1;
+    else                   S.accMask[c]=0;
+  }
+}
+
 function calibrate(){
   const a=played().map(x=>x.dev);
   if(a.length<8){ $('calHint').textContent='打鍵が足りません（8打以上ためしてください）'; return; }
@@ -1890,7 +1958,7 @@ function bind(){
   document.querySelectorAll('#countSeg button').forEach(b=>
     b.onclick=()=>{ if(playing) stop(); playGi=-1;
       S.countIn=+b.dataset.v; saveSoon(); renderControls(); });
-  /* 長さの意味は曲の種類で変わる（ハノンは細胞の数、音階類はオクターブ数）。
+  /* 長さの意味は曲の種類で変わる（ハノンは小節の数、音階類はオクターブ数）。
      同じ入力欄を使い回すが、値は別々に覚えておく。1つにすると、
      ハノンの14がスケールへ持ち込まれて頭打ちになる */
   $('len').oninput=e=>{
@@ -1910,7 +1978,13 @@ function bind(){
   sel('subdiv','subdiv',Number,true);
   sel('pattern','pattern',null,true); sel('key','keyPc',Number,true); sel('mode','mode',null,true);
   sel('startOct','startOct',Number,true); sel('hands','hands',null,true); sel('gap','gap',Number,true);
-  sel('accPat','accPat');
+  $('accOn').onchange=e=>{
+    if(playing) stop();
+    accPreset(e.target.checked ? 'beat' : 'clear');
+    saveSoon(); renderControls(); drawAll();
+  };
+  document.querySelectorAll('#accPreset button').forEach(b=>
+    b.onclick=()=>{ if(playing) stop(); accPreset(b.dataset.p); saveSoon(); renderControls(); drawAll(); });
   $('clickPort').onchange=e=>{ S.clickPort=e.target.value; saveSoon(); };
   $('loopChk').onchange=e=>{ S.loop=e.target.checked; saveSoon(); };
   /* 譜面の中に置いた切り替え（中身は描き直されるので、親で受ける） */
