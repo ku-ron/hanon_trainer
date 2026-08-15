@@ -1265,7 +1265,11 @@ function drawScoreStatic(cur){
   const rows = S.hands==='both' ? ['R','L'] : [S.hands];
   /* 高さは手の数によらず2段ぶん取る。片手にしたときに下がせり上がって
      画面が動くのを避けるためと、左の空きにボタンを置くため */
-  const rowH=Math.max(52, 2.8*SP), laneTop=paperBot+26;
+  /* 音価も判定するときは、手ごとに2段（上＝打鍵と強さ、下＝音の長さ）にする。
+     下の余裕は無いので、増えるのは全体で1.5倍ほどに収める */
+  const twoTier=gateActive();
+  const rowH=twoTier ? Math.max(76, 4.2*SP) : Math.max(52, 2.8*SP);
+  const laneTop=paperBot+26;
   const laneBot=laneTop+2*rowH;
   const H=laneBot+6;
   $('score').setAttribute('viewBox',`0 0 ${SCORE_W} ${H}`);
@@ -1348,68 +1352,78 @@ function drawScoreLive(){
     const byGi=new Map();
     for(const h of hits){ if(h.gi==null) continue;
       if(!byGi.has(h.gi)) byGi.set(h.gi,{}); byGi.get(h.gi)[h.hand]=h; }
+    const two = gateActive();
     g.rows.forEach((hd,ri)=>{
-      const y0=g.laneTop+ri*g.rowH, cy=y0+g.rowH/2;
+      const y0=g.laneTop+ri*g.rowH;
+      const cy = two ? y0+26 : y0+g.rowH/2;        /* 上段：打鍵と強さ */
+      const dy = y0+58;                            /* 下段：音の長さ */
       const col = hd==='R'?'var(--s1)':'var(--s2)';
       const xL=g.nx(0,0), xR=g.nx(1,g.bs-1);
       s+=`<text x="${(xL-g.slotW*0.5-8).toFixed(1)}" y="${cy}" text-anchor="end" dominant-baseline="central" `
         +`font-size="11.5" fill="${col}" font-weight="600">${hd==='R'?'右手':'左手'}</text>`;
-      s+=`<line x1="${(xL-g.slotW*0.5).toFixed(1)}" y1="${cy}" x2="${(xR+g.slotW*0.5).toFixed(1)}" y2="${cy}" `
-        +`stroke="var(--line)" stroke-width="1"/>`;
-      /* 的をぜんぶ先に敷いてから、実際のバーを上に重ねる。1音ずつ交互に描くと、
-         レガートで隣まで伸びたバーの上に次の的が乗ってしまう */
-      let tgt='', act='';
+      for(const ly of (two?[cy,dy]:[cy]))
+        s+=`<line x1="${(xL-g.slotW*0.5).toFixed(1)}" y1="${ly}" x2="${(xR+g.slotW*0.5).toFixed(1)}" y2="${ly}" `
+          +`stroke="var(--line)" stroke-width="1"/>`;
+      /* 3層に分けて描く。下敷き（目盛りと長さの帯）→ 実際に弾いたもの → 的の輪郭。
+         的の輪郭を最後に置かないと、大きく弾いた点に隠れて比べられなくなる */
+      let back='', act='', front='';
+      const cross=(cx2,cy2,r)=>`<path d="M${(cx2-r).toFixed(1)} ${(cy2-r).toFixed(1)} l${2*r} ${2*r} `
+        +`M${(cx2+r).toFixed(1)} ${(cy2-r).toFixed(1)} l${-2*r} ${2*r}" stroke="${col}" stroke-width="2" `
+        +`fill="none" stroke-linecap="round"/>`;
       for(const b of g.bars){
         const slot=mod(b,2);
         for(let j=0;j<g.bs;j++){
           const gi=b*g.bs+j;
           if(gi>=totalSteps()) break;
           const x=g.nx(slot,j);
-          /* --- 的。指定を足すほど育つ。何も指定が無ければ打鍵位置だけの小さな丸 --- */
           const acc=accentOf(gi), art=articOf(gi);
-          const gth = acc==null ? 9 : TH(acc ? S.t1 : S.t2);
-          const gcol = acc==null ? 'var(--dim2)' : (acc ? 'var(--ok)' : 'var(--warn)');
-          const gw = art==null ? 0 : (art ? S.g1/100 : S.g2/100) * g.slotW;
-          if(gw>=10)
-            tgt+=`<rect x="${x.toFixed(1)}" y="${(cy-gth/2).toFixed(1)}" width="${gw.toFixed(1)}" height="${gth.toFixed(1)}" `
-              +`rx="${(gth/2).toFixed(1)}" fill="none" stroke="${gcol}" stroke-width="1.2" opacity="0.6"/>`;
-          else
-            tgt+=`<circle cx="${x.toFixed(1)}" cy="${cy}" r="${(gth/2).toFixed(1)}" fill="none" `
-              +`stroke="${gcol}" stroke-width="1.2" opacity="0.6"/>`;
-          tgt+=`<line x1="${x.toFixed(1)}" y1="${(cy-9).toFixed(1)}" x2="${x.toFixed(1)}" y2="${(cy+9).toFixed(1)}" `
+          back+=`<line x1="${x.toFixed(1)}" y1="${(cy-9).toFixed(1)}" x2="${x.toFixed(1)}" y2="${(cy+9).toFixed(1)}" `
             +`stroke="var(--dim2)" stroke-width="1" opacity="0.5"/>`;
+          /* --- 上段の的。強さの指定は「あるべき丸の大きさ」。
+                 緑＝この大きさ以上、橙＝この大きさ以下、灰＝指定なし --- */
+          const gr=(acc==null ? 9 : TH(acc ? S.t1 : S.t2))/2;
+          const gcol=acc==null ? 'var(--dim2)' : (acc ? 'var(--ok)' : 'var(--warn)');
+          front+=`<circle cx="${x.toFixed(1)}" cy="${cy}" r="${gr.toFixed(1)}" fill="none" `
+            +`stroke="${gcol}" stroke-width="1.3" opacity="0.8"/>`;
+          /* --- 下段の的。あるべき長さの帯と、その端の線。
+                 緑の線まで届けば合格（レガート）／橙の線までで止めれば合格（スタッカート） --- */
+          if(two && art!=null){
+            const gw=Math.max(8,(art ? S.g1/100 : S.g2/100)*g.slotW);
+            back+=`<rect x="${x.toFixed(1)}" y="${(dy-5.5)}" width="${gw.toFixed(1)}" height="11" rx="5.5" fill="var(--panel2)"/>`;
+            front+=`<line x1="${(x+gw).toFixed(1)}" y1="${(dy-7)}" x2="${(x+gw).toFixed(1)}" y2="${(dy+7)}" `
+              +`stroke="${art?'var(--ok)':'var(--warn)'}" stroke-width="1.8"/>`;
+          }
 
           const h=(byGi.get(gi)||{})[hd];
           if(!h) continue;
           if(h.dev==null){                         /* 抜け。的だけが残る */
             act+=`<path d="M${(x-6).toFixed(1)} ${(cy-6).toFixed(1)} l12 12 M${(x+6).toFixed(1)} ${(cy-6).toFixed(1)} l-12 12" `
-              +`stroke="${col}" stroke-width="1.6" fill="none" opacity="0.6"/>`;
+              +`stroke="${col}" stroke-width="1.6" fill="none" opacity="0.55"/>`;
             continue;
           }
-          /* --- 実際に弾いた音。左端＝打鍵、右端＝離鍵、太さ＝強さ --- */
           const bx = x + clamp(h.dev,-S.winMs,S.winMs)*pxMs;
-          const dur = (h.offT!=null ? h.offT-h.onT : Math.max(0, now-h.onT));
-          const bw = Math.max(5, dur*pxMs);
-          const th = TH(h.vel);
+          /* --- 上段：打鍵の位置に点。大きさ＝強さ。外れたら✕ --- */
           act+=`<line x1="${x.toFixed(1)}" y1="${cy}" x2="${bx.toFixed(1)}" y2="${cy}" stroke="${col}" stroke-width="1.2"/>`;
-          act+=`<rect x="${bx.toFixed(1)}" y="${(cy-th/2).toFixed(1)}" width="${bw.toFixed(1)}" height="${th.toFixed(1)}" `
-            +`rx="${(th/2).toFixed(1)}" fill="${col}" opacity="0.88"/>`;
-          /* --- 合否は両端の印で。押した瞬間に分かる強さは左端、離して初めて
-                 分かる音価は右端。色は手の色のまま、形だけが変わる。
-                 うまく弾けているときは印が増えないよう、合格側には何も足さない --- */
-          const cross=(cx2,r)=>`<path d="M${(cx2-r).toFixed(1)} ${(cy-r).toFixed(1)} l${2*r} ${2*r} `
-            +`M${(cx2+r).toFixed(1)} ${(cy-r).toFixed(1)} l${-2*r} ${2*r}" stroke="${col}" stroke-width="2" `
-            +`fill="none" stroke-linecap="round"/>`;
-          if(velVerdict(h)===false) act+=cross(bx,5);
-          else act+=`<circle cx="${bx.toFixed(1)}" cy="${cy}" r="2.6" fill="${col}"/>`;
-          if(gateVerdict(h)===false) act+=cross(bx+bw,5);
+          if(velVerdict(h)===false) act+=cross(bx,cy,5.5);
+          else act+=`<circle cx="${bx.toFixed(1)}" cy="${cy}" r="${(TH(h.vel)/2).toFixed(1)}" fill="${col}" opacity="0.95"/>`;
+          /* --- 下段：押していた長さ。末尾に丸か✕ --- */
+          if(two && art!=null){
+            const dur=(h.offT!=null ? h.offT-h.onT : Math.max(0, now-h.onT));
+            const bw=Math.max(4, dur*pxMs);
+            act+=`<rect x="${bx.toFixed(1)}" y="${(dy-2.5)}" width="${bw.toFixed(1)}" height="5" rx="2.5" fill="${col}"/>`;
+            const gv=gateVerdict(h);
+            if(gv===false) act+=cross(bx+bw,dy,5);
+            else if(gv===true) act+=`<circle cx="${(bx+bw).toFixed(1)}" cy="${dy}" r="3.2" fill="${col}"/>`;
+          }
         }
       }
-      s+=tgt+act;
+      s+=back+act+front;
     });
     s+=`<text x="${(SCORE_W-6)}" y="${(g.laneTop-9)}" text-anchor="end" font-size="10.5" fill="var(--dim2)">`
-      +(SCORE_W<820 ? `横＝時間　目盛り＝1打点 ${Math.round(stepMs())}ms`
-                    : `横＝時間　目盛りの間隔＝1打点 ${Math.round(stepMs())}ms　薄い枠＝指定　✕＝外れ（左＝強さ・右＝長さ）`)+`</text>`;
+      +(SCORE_W<820
+        ? `目盛り＝1打点 ${Math.round(stepMs())}ms`
+        : `横＝時間　目盛りの間隔＝1打点 ${Math.round(stepMs())}ms　薄い印＝指定`
+          + (gateActive() ? `　上＝打鍵と強さ／下＝音の長さ　✕＝外れ` : `　✕＝強さが外れ`))+`</text>`;
   }
   /* いま弾くところ。楽譜からレーンまで通して出す */
   if(playing && playGi>=0){
