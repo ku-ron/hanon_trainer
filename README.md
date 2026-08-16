@@ -6,9 +6,17 @@
 
 **→ アプリ　https://ku-ron.github.io/hanon_trainer/**
 
+**→ 紹介動画　https://youtu.be/wnLV61NK8i4**
+
 ![演奏中の画面](docs/monitor.png)
 
 *弾いている最中の画面。上が自動生成した楽譜、その下が判定、いちばん下がベロシティと鍵盤です。*
+
+## 紹介動画
+
+[![ハノントレーナー｜リズム・強さ・音の長さを測る / Hanon Trainer — timing, velocity & note length (Web MIDI)](https://img.youtube.com/vi/wnLV61NK8i4/maxresdefault.jpg)](https://youtu.be/wnLV61NK8i4)
+
+つなぎ方から、実際に弾いて判定が出るところまで、動画で見られます。→ https://youtu.be/wnLV61NK8i4
 
 姉妹プロジェクト [ピアノ演奏モニタ](https://github.com/ku-ron/piano_monitor)（弾いたものをそのまま映す）、[コード弾き練習 MIDI Ver.](https://github.com/ku-ron/chord_practice_midi)（コードを弾けたか見る）に続く3つめで、MIDIのつなぎ方・メトロノームの鳴らし方はそのまま同じです。こちらが見るのは **「同じ感覚で弾けているか」** です。
 
